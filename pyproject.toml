@@ -1,0 +1,19 @@
+[project]
+name = "quantpublisher"
+version = "0.1.0"
+description = "Personal quant data collection, analysis, and static-site publishing pipeline"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]
+testpaths = ["tests"]
+
+[tool.uv]
+package = false
