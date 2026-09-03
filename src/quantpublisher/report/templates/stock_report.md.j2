@@ -1,0 +1,28 @@
+---
+title: "{{ report.name }} ({{ report.stock_code }})"
+stock_code: "{{ report.stock_code }}"
+market: "{{ report.market }}"
+date: "{{ report.generated_at }}"
+draft: false
+---
+
+# {{ report.name }} ({{ report.stock_code }})
+
+- 시장: {{ report.market }}
+- 생성 시각: {{ report.generated_at }}
+
+## 주요 지표
+
+| 지표 | 값 |
+|---|---|
+| ROE (%) | {{ report.metrics.roe | fmt_metric }} |
+| ROA (%) | {{ report.metrics.roa | fmt_metric }} |
+| EPS | {{ report.metrics.eps | fmt_metric }} |
+| BPS | {{ report.metrics.bps | fmt_metric }} |
+| PER | {{ report.metrics.per | fmt_metric }} |
+| PBR | {{ report.metrics.pbr | fmt_metric }} |
+| 영업이익률 (%) | {{ report.metrics.operating_margin | fmt_metric }} |
+| 순이익률 (%) | {{ report.metrics.net_margin | fmt_metric }} |
+| 부채비율 (%) | {{ report.metrics.debt_ratio | fmt_metric }} |
+| 배당수익률 (%) | {{ report.metrics.dividend_yield | fmt_metric }} |
+| 매출성장률 (%) | {{ report.metrics.revenue_growth_rate | fmt_metric }} |

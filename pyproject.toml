@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Personal quant data / analysis / publishing pipeline running on a single Mac mini"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "jinja2>=3.1",
+]
 
 [dependency-groups]
 dev = [
