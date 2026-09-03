@@ -1,0 +1,10 @@
+[
+    {"Code": "005930", "Name": "삼성전자", "Market": "KOSPI"},
+    {"Code": "035720", "Name": "카카오", "Market": "KOSDAQ"},
+    {"Code": "005930", "Name": "삼성전자(수정)", "Market": "KOSPI"},
+    {"Code": "", "Name": "종목코드없음", "Market": "KOSPI"},
+    {"Code": "123456", "Name": "", "Market": "KOSPI"},
+    {"Code": "12345", "Name": "코드길이오류", "Market": "KOSPI"},
+    {"Code": "999999", "Name": "시장구분오류", "Market": "NASDAQ"},
+    {"Code": "058470", "Name": "리노공업", "Market": "KONEX"}
+]
