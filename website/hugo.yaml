@@ -1,0 +1,23 @@
+baseURL: "https://example.com/"
+languageCode: "ko-kr"
+title: "Quant Publisher"
+
+pagination:
+  pagerSize: 20
+
+markup:
+  goldmark:
+    renderer:
+      unsafe: false
+
+menu:
+  main:
+    - name: "Home"
+      url: "/"
+      weight: 1
+    - name: "Stocks"
+      url: "/stocks/"
+      weight: 2
+
+params:
+  description: "개인 퀀트 데이터 수집·분석·리포트 사이트"

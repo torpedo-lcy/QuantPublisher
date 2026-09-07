@@ -1,0 +1,17 @@
+{{ define "title" }}{{ .Site.Title }}{{ end }}
+
+{{ define "main" }}
+<section class="home">
+  <h1>{{ .Site.Title }}</h1>
+  {{ .Content }}
+
+  <h2>Stocks</h2>
+  <ul class="page-list">
+    {{ range where .Site.RegularPages "Section" "stocks" }}
+    <li><a href="{{ .RelPermalink }}">{{ .Title }}</a></li>
+    {{ else }}
+    <li>등록된 종목 리포트가 없습니다.</li>
+    {{ end }}
+  </ul>
+</section>
+{{ end }}

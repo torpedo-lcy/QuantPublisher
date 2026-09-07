@@ -1,0 +1,13 @@
+{{ define "title" }}{{ .Title }} · {{ .Site.Title }}{{ end }}
+
+{{ define "main" }}
+<article class="stock-page">
+  <h1>{{ .Title }}</h1>
+  <p class="stock-meta">
+    {{ with .Params.stock_code }}종목코드: {{ . }}{{ end }}
+    {{ with .Params.market }} &middot; 시장: {{ . }}{{ end }}
+    {{ if not .Date.IsZero }} &middot; 생성 시각: {{ .Date.Format "2006-01-02T15:04:05Z07:00" }}{{ end }}
+  </p>
+  {{ .Content }}
+</article>
+{{ end }}
