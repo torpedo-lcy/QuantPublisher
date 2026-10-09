@@ -16,16 +16,15 @@ HTML 생성, 투자 판단, 배포는 이 모듈의 책임이 아니다.
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 from typing import Any, Iterable, Mapping
 
 from quantpublisher.database.models import Security
 from quantpublisher.database.security_repository import SecurityRepository
+from quantpublisher.database.stock_code import STOCK_CODE_PATTERN
 
 logger = logging.getLogger(__name__)
 
-_STOCK_CODE_PATTERN = re.compile(r"^\d{6}$")
 _VALID_MARKETS = {"KOSPI", "KOSDAQ", "KONEX"}
 
 
@@ -123,11 +122,11 @@ def collect_krx_listing(connection: sqlite3.Connection) -> int:
 
 
 def _normalize_stock_code(value: Any) -> str | None:
-    """값을 6자리 종목코드 문자열로 정규화한다. 유효하지 않으면 None."""
+    """값을 종목코드 문자열(숫자/영문 대문자 6자리)로 정규화한다. 유효하지 않으면 None."""
     if value is None:
         return None
     code = str(value).strip()
-    if not _STOCK_CODE_PATTERN.match(code):
+    if not STOCK_CODE_PATTERN.match(code):
         return None
     return code
 

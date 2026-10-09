@@ -4,9 +4,12 @@ import math
 
 from quantpublisher.analysis.metrics import (
     calculate_bps,
+    calculate_cumulative_return,
+    calculate_daily_return,
     calculate_debt_ratio,
     calculate_dividend_yield,
     calculate_eps,
+    calculate_max_drawdown,
     calculate_net_margin,
     calculate_operating_margin,
     calculate_pbr,
@@ -131,3 +134,47 @@ def test_calculate_revenue_growth_rate_handles_negative_growth() -> None:
     result = calculate_revenue_growth_rate(current_revenue=800, previous_revenue=1000)
     assert result is not None
     assert math.isclose(result, -20.0)
+
+
+def test_calculate_daily_return_returns_expected_value() -> None:
+    result = calculate_daily_return(previous_close=100, current_close=105)
+    assert result is not None
+    assert math.isclose(result, 5.0)
+
+
+def test_calculate_daily_return_returns_none_when_previous_close_is_zero() -> None:
+    assert calculate_daily_return(previous_close=0, current_close=105) is None
+
+
+def test_calculate_daily_return_returns_none_when_current_close_is_missing() -> None:
+    assert calculate_daily_return(previous_close=100, current_close=None) is None
+
+
+def test_calculate_cumulative_return_returns_expected_value() -> None:
+    result = calculate_cumulative_return(initial_value=1_000_000, final_value=1_125_000)
+    assert result is not None
+    assert math.isclose(result, 12.5)
+
+
+def test_calculate_cumulative_return_returns_none_when_initial_value_is_zero() -> None:
+    assert calculate_cumulative_return(initial_value=0, final_value=1000) is None
+
+
+def test_calculate_max_drawdown_returns_expected_value() -> None:
+    result = calculate_max_drawdown([100, 110, 90, 95, 120])
+    assert result is not None
+    assert math.isclose(result, (90 - 110) / 110 * 100)
+
+
+def test_calculate_max_drawdown_returns_zero_for_monotonic_increase() -> None:
+    result = calculate_max_drawdown([100, 105, 110])
+    assert result is not None
+    assert math.isclose(result, 0.0)
+
+
+def test_calculate_max_drawdown_returns_none_for_empty_list() -> None:
+    assert calculate_max_drawdown([]) is None
+
+
+def test_calculate_max_drawdown_returns_none_when_value_is_not_positive() -> None:
+    assert calculate_max_drawdown([100, 0, 90]) is None

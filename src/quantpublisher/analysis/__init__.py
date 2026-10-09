@@ -6,9 +6,12 @@
 
 from quantpublisher.analysis.metrics import (
     calculate_bps,
+    calculate_cumulative_return,
+    calculate_daily_return,
     calculate_debt_ratio,
     calculate_dividend_yield,
     calculate_eps,
+    calculate_max_drawdown,
     calculate_net_margin,
     calculate_operating_margin,
     calculate_pbr,
@@ -20,9 +23,12 @@ from quantpublisher.analysis.metrics import (
 
 __all__ = [
     "calculate_bps",
+    "calculate_cumulative_return",
+    "calculate_daily_return",
     "calculate_debt_ratio",
     "calculate_dividend_yield",
     "calculate_eps",
+    "calculate_max_drawdown",
     "calculate_net_margin",
     "calculate_operating_margin",
     "calculate_pbr",

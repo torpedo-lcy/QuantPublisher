@@ -33,6 +33,25 @@ class StockMetrics:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricsBasis:
+    """지표 값의 기준 시점과 재무제표 기준(연결/별도) (Task 015).
+
+    값만 보여주고 기준 시점을 숨기지 않기 위해 StockMetrics와 함께 리포트에
+    전달한다. 기준 데이터가 없으면 해당 필드는 None이다.
+
+    Attributes:
+        statement_year: 재무제표 지표(ROE, ROA, 마진, 부채비율, 매출성장률)의
+            기준 사업연도 (연간).
+        is_consolidated: 1=연결, 0=별도, 모르면 None.
+        valuation_month: 밸류에이션 지표(PER, PBR, EPS, BPS)의 기준 월 (YYYY-MM).
+    """
+
+    statement_year: int | None = None
+    is_consolidated: int | None = None
+    valuation_month: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class StockReport:
     """종목 하나에 대한 리포트 모델.
 
@@ -45,6 +64,7 @@ class StockReport:
         market: 시장 구분.
         metrics: 계산된 지표 모음.
         generated_at: 리포트 생성 시각 (ISO 8601 문자열).
+        basis: 지표의 기준 연도/월과 연결/별도 구분. 지정하지 않으면 모두 None.
     """
 
     stock_code: str
@@ -52,3 +72,4 @@ class StockReport:
     market: str
     metrics: StockMetrics
     generated_at: str
+    basis: MetricsBasis = MetricsBasis()

@@ -151,3 +151,57 @@ def calculate_revenue_growth_rate(
         return None
     growth = _safe_divide(current_revenue - previous_revenue, previous_revenue)
     return growth * 100 if growth is not None else None
+
+
+def calculate_daily_return(
+    previous_close: float | None, current_close: float | None
+) -> float | None:
+    """전일 종가 대비 당일 수익률(%)을 계산한다.
+
+    수익률 = (당일 종가 - 전일 종가) / 전일 종가 * 100
+
+    previous_close가 0이거나 결측이면 None을 반환한다.
+    """
+    if current_close is None or previous_close is None:
+        return None
+    ratio = _safe_divide(current_close - previous_close, previous_close)
+    return ratio * 100 if ratio is not None else None
+
+
+def calculate_cumulative_return(
+    initial_value: float | None, final_value: float | None
+) -> float | None:
+    """초기값 대비 최종값의 누적 수익률(%)을 계산한다.
+
+    누적 수익률 = (최종값 - 초기값) / 초기값 * 100
+
+    initial_value가 0이거나 결측이면 None을 반환한다.
+    """
+    if final_value is None or initial_value is None:
+        return None
+    ratio = _safe_divide(final_value - initial_value, initial_value)
+    return ratio * 100 if ratio is not None else None
+
+
+def calculate_max_drawdown(values: list[float]) -> float | None:
+    """시계열의 최대 낙폭(MDD, %)을 계산한다.
+
+    각 시점까지의 최고점 대비 하락폭 중 가장 큰 값을 음수(%)로 반환한다.
+    (예: 고점 대비 20% 하락하면 -20.0)
+
+    values가 비어 있으면 None을 반환한다.
+    values에 0 이하의 값이 포함되면 낙폭을 의미 있게 계산할 수 없으므로
+    None을 반환한다.
+    """
+    if not values:
+        return None
+    if any(value <= 0 for value in values):
+        return None
+
+    peak = values[0]
+    max_drawdown = 0.0
+    for value in values:
+        peak = max(peak, value)
+        drawdown = (value - peak) / peak * 100
+        max_drawdown = min(max_drawdown, drawdown)
+    return max_drawdown

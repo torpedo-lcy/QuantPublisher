@@ -10,13 +10,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from quantpublisher.database.models import Security
-from quantpublisher.report.models import StockMetrics, StockReport
+from quantpublisher.report.models import MetricsBasis, StockMetrics, StockReport
 
 
 def build_stock_report(
     security: Security,
     metrics: StockMetrics,
     generated_at: str | None = None,
+    basis: MetricsBasis | None = None,
 ) -> StockReport:
     """Security와 StockMetrics로부터 StockReport를 생성한다.
 
@@ -25,6 +26,8 @@ def build_stock_report(
         metrics: 이미 계산된 지표 값 모음.
         generated_at: 리포트 생성 시각 (ISO 8601 문자열). 지정하지
             않으면 UTC 기준 현재 시각을 사용한다.
+        basis: 지표의 기준 연도/월과 연결/별도 구분. 지정하지 않으면
+            기준 정보가 없는 MetricsBasis()를 사용한다.
     """
     timestamp = generated_at if generated_at is not None else _now_iso()
     return StockReport(
@@ -33,6 +36,7 @@ def build_stock_report(
         market=security.market,
         metrics=metrics,
         generated_at=timestamp,
+        basis=basis if basis is not None else MetricsBasis(),
     )
 
 

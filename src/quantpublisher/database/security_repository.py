@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import Mapping
 
 from quantpublisher.database.models import Security
 
@@ -77,6 +78,30 @@ class SecurityRepository:
             ).fetchall()
         return [_row_to_security(row) for row in rows]
 
+    def update_corp_codes(self, corp_codes: Mapping[str, str]) -> int:
+        """종목코드별 DART 고유번호를 갱신한다.
+
+        securities에 없는 종목코드는 무시하고(행이 생성되지 않는다), 값이 실제로
+        바뀐 행만 갱신한다 (updated_at도 그때만 바뀐다).
+
+        Returns:
+            값이 실제로 바뀐 행 수.
+        """
+        changed = 0
+        with self._connection:
+            for stock_code, corp_code in corp_codes.items():
+                cursor = self._connection.execute(
+                    """
+                    UPDATE securities
+                    SET corp_code = ?, updated_at = datetime('now')
+                    WHERE stock_code = ? AND corp_code IS NOT ?
+                    """,
+                    (corp_code, stock_code, corp_code),
+                )
+                changed += cursor.rowcount
+        logger.info("security_corp_codes_updated changed=%d", changed)
+        return changed
+
     def delete(self, stock_code: str) -> bool:
         """종목을 삭제한다. 삭제된 행이 있으면 True, 없으면 False를 반환한다."""
         with self._connection:
@@ -96,6 +121,7 @@ def _row_to_security(row: sqlite3.Row) -> Security:
         name=row["name"],
         market=row["market"],
         is_active=bool(row["is_active"]),
+        corp_code=row["corp_code"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

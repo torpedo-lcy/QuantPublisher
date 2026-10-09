@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Quant Publisher - daily_update용 launchd 설정 예시.
+
+    설치 방법은 docs/AUTOMATION.md를 참고한다. 아래 두 곳의 경로를
+    실제 Mac mini 사용자/설치 경로에 맞게 수정해야 한다.
+
+        1. ProgramArguments의 scripts/daily_update.sh 경로
+        2. StandardOutPath / StandardErrorPath 경로
+
+    예시는 /Users/home_lcy2/project/QuantPublisher를 기준으로 작성했다.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.quantpublisher.dailyupdate</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-lc</string>
+        <string>/Users/home_lcy2/project/QuantPublisher/scripts/daily_update.sh</string>
+    </array>
+
+    <!-- 매일 07:30에 실행한다. 필요에 맞게 Hour/Minute을 수정한다. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+
+    <!-- launchd 로드 시 즉시 1회 실행하지 않는다 (수동 실행으로 먼저 검증). -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/home_lcy2/project/QuantPublisher/logs/launchd_daily_update.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/home_lcy2/project/QuantPublisher/logs/launchd_daily_update.err.log</string>
+</dict>
+</plist>

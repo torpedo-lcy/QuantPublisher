@@ -1,3 +1,29 @@
+# 비밀값
 .env
 opendart_api.txt
 
+# 데이터 (SQLite DB, 외부 Mac에서 가져온 원천 파일). GitHub 100MB 제한 초과 + 비공개 데이터.
+data/
+*.sqlite3
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 실행 로그
+logs/
+
+# Hugo 빌드 산출물 (GitHub Actions가 빌드한다)
+website/public/
+website/resources/
+website/.hugo_build.lock
+
+# macOS
+.DS_Store
+*.zip
