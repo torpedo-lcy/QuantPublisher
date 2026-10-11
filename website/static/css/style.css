@@ -86,9 +86,30 @@ th, td {
 }
 
 .price-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.9rem;
   min-height: 1.5rem;
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+.price-chart-date {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.price-chart-item {
+  white-space: nowrap;
+}
+
+.price-chart-swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.3rem;
+  border-radius: 2px;
+  vertical-align: -1px;
 }
 
 .price-chart-status {

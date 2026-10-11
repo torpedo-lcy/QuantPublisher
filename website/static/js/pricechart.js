@@ -46,13 +46,35 @@
     var fg = cssVar("--fg", "#1b1f23");
     var grid = cssVar("--border", "#e1e4e8");
     var accent = cssVar("--accent", "#0b5fff");
+    var muted = cssVar("--muted", "#6a737d");
+
+    // 범례: 색 표시 + 이름 + 커서 위치(없으면 마지막 거래일)의 값.
+    var legendItems = [{ label: "종가", color: accent, get: function (i) { return data.c[i]; } }]
+      .concat(MA_WINDOWS.map(function (w, k) {
+        return { label: "MA" + w.n, color: w.color, get: function (i) { return series[k + 1][i]; } };
+      }))
+      .concat([{ label: "거래량", color: muted, get: function (i) { return data.v[i]; } }]);
+
+    legendEl.textContent = "";
+    var dateEl = document.createElement("span");
+    dateEl.className = "price-chart-date";
+    legendEl.appendChild(dateEl);
+    legendItems.forEach(function (item) {
+      var wrap = document.createElement("span");
+      wrap.className = "price-chart-item";
+      var swatch = document.createElement("span");
+      swatch.className = "price-chart-swatch";
+      swatch.style.background = item.color;
+      item.valueEl = document.createElement("span");
+      wrap.appendChild(swatch);
+      wrap.appendChild(document.createTextNode(item.label + " "));
+      wrap.appendChild(item.valueEl);
+      legendEl.appendChild(wrap);
+    });
 
     function showLegend(i) {
-      var parts = [dateLabel(x[i]), "종가 " + fmt(data.c[i]), "거래량 " + fmt(data.v[i])];
-      MA_WINDOWS.forEach(function (w, k) {
-        if (series[k + 1][i] != null) parts.push("MA" + w.n + " " + fmt(series[k + 1][i]));
-      });
-      legendEl.textContent = parts.join(" · ");
+      dateEl.textContent = dateLabel(x[i]);
+      legendItems.forEach(function (item) { item.valueEl.textContent = fmt(item.get(i)); });
     }
 
     var start = Math.max(0, x.length - DEFAULT_VISIBLE_DAYS);
