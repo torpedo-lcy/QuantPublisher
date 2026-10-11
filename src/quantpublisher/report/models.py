@@ -52,6 +52,31 @@ class MetricsBasis:
 
 
 @dataclass(frozen=True, slots=True)
+class FinancialYear:
+    """연간 재무 시계열의 한 해 (Task 018).
+
+    금액은 원 단위다. 계산할 수 없는 값은 None이며 표현 계층이 "N/A"로 표시한다.
+
+    Attributes:
+        year: 사업연도.
+        is_consolidated: 1=연결, 0=별도, 모르면 None. 해마다 달라질 수 있다.
+        sales: 매출액.
+        operating_income: 영업이익.
+        net_income: 당기순이익.
+        operating_margin: 영업이익률(%).
+        roe: 자기자본이익률(%).
+    """
+
+    year: int
+    is_consolidated: int | None = None
+    sales: float | None = None
+    operating_income: float | None = None
+    net_income: float | None = None
+    operating_margin: float | None = None
+    roe: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class StockReport:
     """종목 하나에 대한 리포트 모델.
 
@@ -68,6 +93,8 @@ class StockReport:
             가격 데이터가 없으면 None.
         basis: 지표의 기준 연도/월과 연결/별도 구분. 지정하지 않으면 모두 None.
         has_price_chart: 가격 차트 JSON이 생성되어 페이지에 차트를 넣을 수 있는지 여부.
+        financial_history: 연간 재무 시계열 (연도 오름차순). 없으면 빈 튜플.
+        has_financial_chart: 재무 차트 JSON이 생성되어 차트를 넣을 수 있는지 여부.
     """
 
     stock_code: str
@@ -77,3 +104,5 @@ class StockReport:
     data_date: str | None = None
     basis: MetricsBasis = MetricsBasis()
     has_price_chart: bool = False
+    financial_history: tuple[FinancialYear, ...] = ()
+    has_financial_chart: bool = False

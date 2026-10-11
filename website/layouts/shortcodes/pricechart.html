@@ -1,13 +1,9 @@
 {{- $code := .Get "code" | default (.Get 0) -}}
-{{- if not (.Page.Scratch.Get "pricechart-assets") -}}
-{{- .Page.Scratch.Set "pricechart-assets" true -}}
-<link rel="stylesheet" href="{{ "vendor/uplot/uPlot.min.css" | relURL }}">
-<script src="{{ "vendor/uplot/uPlot.iife.min.js" | relURL }}" defer></script>
+{{- partial "chart-base-assets.html" .Page -}}
 <script src="{{ "js/pricechart.js" | relURL }}" defer></script>
-{{- end }}
 <div class="price-chart" data-src="{{ printf "charts/prices/%s.json" $code | relURL }}">
-  <div class="price-chart-legend" aria-live="polite"></div>
+  <div class="chart-legend" aria-live="polite"></div>
   <div class="price-chart-price"></div>
   <div class="price-chart-volume"></div>
-  <p class="price-chart-status">차트를 불러오는 중입니다. 자바스크립트가 꺼져 있으면 표시되지 않습니다.</p>
+  <p class="chart-status">차트를 불러오는 중입니다. 자바스크립트가 꺼져 있으면 표시되지 않습니다.</p>
 </div>

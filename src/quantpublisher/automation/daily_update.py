@@ -29,17 +29,21 @@ from quantpublisher.database.core import Database, init_db
 from quantpublisher.database.models import Security
 from quantpublisher.database.price_repository import PriceRepository
 from quantpublisher.database.security_repository import SecurityRepository
-from quantpublisher.automation.stock_metrics import load_stock_metrics
+from quantpublisher.automation.stock_metrics import load_financial_history, load_stock_metrics
 from quantpublisher.report import build_stock_report, write_stock_report_markdown
-from quantpublisher.report.chart_data import CHART_MAX_ROWS, write_price_chart_json
+from quantpublisher.report.chart_data import (
+    CHART_MAX_ROWS,
+    write_financial_chart_json,
+    write_price_chart_json,
+)
 
 logger = logging.getLogger(__name__)
 
 # website/content/stocks/ - Hugo가 그대로 콘텐츠로 인식하는 디렉터리.
 _DEFAULT_CONTENT_RELATIVE_DIR = Path("website") / "content" / "stocks"
-# website/static/charts/prices/ - 가격 차트 JSON. Hugo가 그대로 정적 파일로 배포한다.
-# (.gitignore의 `data/`에 걸리지 않도록 `data`가 아닌 `charts`를 쓴다.)
-_CHART_RELATIVE_DIR = Path("static") / "charts" / "prices"
+# website/static/charts/ - 차트 JSON 루트 (prices/, financials/). Hugo가 그대로 정적
+# 파일로 배포한다. (.gitignore의 `data/`에 걸리지 않도록 `data`가 아닌 `charts`를 쓴다.)
+_CHART_RELATIVE_DIR = Path("static") / "charts"
 
 
 class DailyUpdateError(Exception):
@@ -87,9 +91,9 @@ def run_daily_update(
         content_dir: Markdown 리포트를 생성할 디렉터리 (Hugo content).
             지정하지 않으면 PROJECT_ROOT/website/content/stocks 사용.
         settings: 주입용 Settings. 지정하지 않으면 get_settings() 사용.
-        chart_dir: 가격 차트 JSON을 생성할 디렉터리. 지정하지 않으면 content_dir가
-            website/content/stocks일 때의 website/static/charts/prices 위치
-            (content_dir의 두 단계 위 + static/charts/prices)를 쓴다.
+        chart_dir: 차트 JSON을 생성할 루트 디렉터리. 아래에 prices/(가격), financials/(재무)를
+            만든다. 지정하지 않으면 content_dir가 website/content/stocks일 때의
+            website/static/charts (content_dir의 두 단계 위 + static/charts)를 쓴다.
 
     Returns:
         DailyUpdateResult: 수집/생성 건수와 소요 시간.
@@ -197,6 +201,7 @@ def _write_reports(
     with_statements = 0
     with_valuation = 0
     with_chart = 0
+    with_history = 0
     price_repository = PriceRepository(connection)
     latest_trade_dates = price_repository.get_latest_trade_dates()
     for security in securities:
@@ -204,26 +209,36 @@ def _write_reports(
         recent_prices = price_repository.list_recent_by_code(
             security.stock_code, CHART_MAX_ROWS
         )
-        chart_path = write_price_chart_json(security.stock_code, recent_prices, chart_dir)
+        chart_path = write_price_chart_json(
+            security.stock_code, recent_prices, chart_dir / "prices"
+        )
+        history = load_financial_history(connection, security.stock_code)
+        financial_chart_path = write_financial_chart_json(
+            security.stock_code, history, chart_dir / "financials"
+        )
         report = build_stock_report(
             security,
             metrics,
             data_date=latest_trade_dates.get(security.stock_code),
             basis=basis,
             has_price_chart=chart_path is not None,
+            financial_history=history,
+            has_financial_chart=financial_chart_path is not None,
         )
         write_stock_report_markdown(report, content_dir)
         count += 1
         with_statements += basis.statement_year is not None
         with_valuation += basis.valuation_month is not None
         with_chart += chart_path is not None
+        with_history += bool(history)
     logger.info(
         "report_metrics_coverage reports=%d with_statements=%d with_valuation=%d "
-        "with_chart=%d",
+        "with_chart=%d with_history=%d",
         count,
         with_statements,
         with_valuation,
         with_chart,
+        with_history,
     )
     return count
 

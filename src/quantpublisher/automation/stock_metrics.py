@@ -33,12 +33,15 @@ from quantpublisher.analysis.metrics import (
 )
 from quantpublisher.database.financial_repository import FinancialRepository
 from quantpublisher.database.models import FinancialMetric, FinancialStatement
-from quantpublisher.report import MetricsBasis, StockMetrics
+from quantpublisher.report import FinancialYear, MetricsBasis, StockMetrics
 
 logger = logging.getLogger(__name__)
 
 # 연간 사업보고서 report_type (DART). financial_statements에는 이 값만 저장된다.
 ANNUAL_REPORT_TYPE = "11011"
+
+# 페이지에 싣는 재무 시계열의 최대 연수 (최근 연도부터).
+FINANCIAL_HISTORY_YEARS = 8
 
 
 def load_stock_metrics(
@@ -54,6 +57,40 @@ def load_stock_metrics(
     valuations = repository.list_metrics(stock_code)
     latest_valuation = valuations[-1] if valuations else None
     return compute_stock_metrics(statements, latest_valuation)
+
+
+def load_financial_history(
+    connection: sqlite3.Connection, stock_code: str
+) -> tuple[FinancialYear, ...]:
+    """한 종목의 연간 재무 시계열을 조회한다. DB 오류는 호출자에게 전달한다."""
+    statements = FinancialRepository(connection).list_statements(stock_code)
+    return build_financial_history(statements)
+
+
+def build_financial_history(
+    statements: Sequence[FinancialStatement],
+    max_years: int = FINANCIAL_HISTORY_YEARS,
+) -> tuple[FinancialYear, ...]:
+    """연간 재무제표로 최근 max_years개 연도의 시계열을 만든다 (연도 오름차순).
+
+    DB에 접근하지 않는 순수 함수다. 지표는 그 해의 값만으로 계산한다.
+    매출액, 영업이익, 순이익이 모두 없는 해는 정보가 없으므로 제외한다.
+    """
+    annual = _annual_statements_by_year(statements)
+    years = [
+        FinancialYear(
+            year=s.year,
+            is_consolidated=s.is_consolidated,
+            sales=s.sales,
+            operating_income=s.operating_income,
+            net_income=s.net_income,
+            operating_margin=calculate_operating_margin(s.operating_income, s.sales),
+            roe=calculate_roe(s.net_income, s.equity),
+        )
+        for s in (annual[year] for year in sorted(annual))
+        if not (s.sales is None and s.operating_income is None and s.net_income is None)
+    ]
+    return tuple(years[-max_years:])
 
 
 def compute_stock_metrics(

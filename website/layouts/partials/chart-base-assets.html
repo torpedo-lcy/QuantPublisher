@@ -1,0 +1,7 @@
+{{- /* 차트 공통 자산(uPlot, 헬퍼). 한 페이지에서 한 번만 출력한다. 인자: .Page */ -}}
+{{- if not (.Scratch.Get "chart-base-assets") -}}
+{{- .Scratch.Set "chart-base-assets" true -}}
+<link rel="stylesheet" href="{{ "vendor/uplot/uPlot.min.css" | relURL }}">
+<script src="{{ "vendor/uplot/uPlot.iife.min.js" | relURL }}" defer></script>
+<script src="{{ "js/chartcommon.js" | relURL }}" defer></script>
+{{- end -}}

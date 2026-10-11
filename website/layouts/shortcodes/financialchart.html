@@ -1,0 +1,8 @@
+{{- $code := .Get "code" | default (.Get 0) -}}
+{{- partial "chart-base-assets.html" .Page -}}
+<script src="{{ "js/financialchart.js" | relURL }}" defer></script>
+<div class="financial-chart" data-src="{{ printf "charts/financials/%s.json" $code | relURL }}">
+  <div class="chart-legend" aria-live="polite"></div>
+  <div class="financial-chart-plot"></div>
+  <p class="chart-status">차트를 불러오는 중입니다. 자바스크립트가 꺼져 있으면 표시되지 않습니다.</p>
+</div>

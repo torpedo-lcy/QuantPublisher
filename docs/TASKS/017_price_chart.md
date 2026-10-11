@@ -22,7 +22,7 @@ Task 016 완료.
 - uPlot 1.6.31(MIT)을 `website/static/vendor/uplot/`에 포함한다 (CDN 의존 없음, LICENSE 포함).
 - Hugo shortcode `website/layouts/shortcodes/pricechart.html`. 템플릿은 차트 JSON이 있는 종목에만
   `{{< pricechart code="..." >}}`를 넣는다 (`StockReport.has_price_chart`). `hugo.yaml`의 `unsafe: false`는 그대로다.
-- `daily_update`는 content 경로 기준(`../../static/charts/prices`)으로 차트를 생성하며 `chart_dir`로 바꿀 수 있다.
+- `daily_update`는 content 경로 기준(`../../static/charts`)으로 차트를 생성하며 `chart_dir`(루트)로 바꿀 수 있다. Task 018부터 루트 아래 `prices/`, `financials/`를 쓴다.
 - `scripts/daily_update.sh`가 `website/static/charts`도 commit 대상에 포함한다.
 
 ## 확인 결과 (2026-10-11)

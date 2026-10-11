@@ -21,24 +21,18 @@
     return out;
   }
 
-  function fmt(v) {
-    return v == null ? "-" : v.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
-  }
+  var fmt = QPChart.fmt;
+  var cssVar = QPChart.cssVar;
 
   function dateLabel(sec) {
     return new Date(sec * 1000).toISOString().slice(0, 10);
   }
 
-  function cssVar(name, fallback) {
-    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return v || fallback;
-  }
-
   function render(el, data) {
     var priceEl = el.querySelector(".price-chart-price");
     var volumeEl = el.querySelector(".price-chart-volume");
-    var legendEl = el.querySelector(".price-chart-legend");
-    var statusEl = el.querySelector(".price-chart-status");
+    var legendEl = el.querySelector(".chart-legend");
+    var statusEl = el.querySelector(".chart-status");
 
     var x = data.t.map(function (d) { return d * 86400; });
     var series = [data.c].concat(MA_WINDOWS.map(function (w) { return movingAverage(data.c, w.n); }));
@@ -55,26 +49,9 @@
       }))
       .concat([{ label: "거래량", color: muted, get: function (i) { return data.v[i]; } }]);
 
-    legendEl.textContent = "";
-    var dateEl = document.createElement("span");
-    dateEl.className = "price-chart-date";
-    legendEl.appendChild(dateEl);
-    legendItems.forEach(function (item) {
-      var wrap = document.createElement("span");
-      wrap.className = "price-chart-item";
-      var swatch = document.createElement("span");
-      swatch.className = "price-chart-swatch";
-      swatch.style.background = item.color;
-      item.valueEl = document.createElement("span");
-      wrap.appendChild(swatch);
-      wrap.appendChild(document.createTextNode(item.label + " "));
-      wrap.appendChild(item.valueEl);
-      legendEl.appendChild(wrap);
-    });
-
+    var showLegendValues = QPChart.buildLegend(legendEl, legendItems);
     function showLegend(i) {
-      dateEl.textContent = dateLabel(x[i]);
-      legendItems.forEach(function (item) { item.valueEl.textContent = fmt(item.get(i)); });
+      showLegendValues(i, dateLabel(x[i]));
     }
 
     var start = Math.max(0, x.length - DEFAULT_VISIBLE_DAYS);
@@ -132,21 +109,5 @@
     showLegend(x.length - 1);
   }
 
-  function init(el) {
-    var statusEl = el.querySelector(".price-chart-status");
-    fetch(el.getAttribute("data-src"))
-      .then(function (r) {
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return r.json();
-      })
-      .then(function (data) { render(el, data); })
-      .catch(function (err) {
-        statusEl.textContent = "차트 데이터를 불러오지 못했습니다 (" + err.message + ").";
-      });
-  }
-
-  document.addEventListener("DOMContentLoaded", function () {
-    if (typeof uPlot === "undefined") return;
-    document.querySelectorAll(".price-chart").forEach(init);
-  });
+  QPChart.mount(".price-chart", render);
 })();

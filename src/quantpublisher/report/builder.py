@@ -8,7 +8,12 @@ quantpublisher.analysis.metrics에서 이미 끝난 값을 StockMetrics로
 from __future__ import annotations
 
 from quantpublisher.database.models import Security
-from quantpublisher.report.models import MetricsBasis, StockMetrics, StockReport
+from quantpublisher.report.models import (
+    FinancialYear,
+    MetricsBasis,
+    StockMetrics,
+    StockReport,
+)
 
 
 def build_stock_report(
@@ -17,6 +22,8 @@ def build_stock_report(
     data_date: str | None = None,
     basis: MetricsBasis | None = None,
     has_price_chart: bool = False,
+    financial_history: tuple[FinancialYear, ...] = (),
+    has_financial_chart: bool = False,
 ) -> StockReport:
     """Security와 StockMetrics로부터 StockReport를 생성한다.
 
@@ -29,6 +36,8 @@ def build_stock_report(
         basis: 지표의 기준 연도/월과 연결/별도 구분. 지정하지 않으면
             기준 정보가 없는 MetricsBasis()를 사용한다.
         has_price_chart: 가격 차트 JSON이 있어 페이지에 차트를 넣을지 여부.
+        financial_history: 연간 재무 시계열 (연도 오름차순).
+        has_financial_chart: 재무 차트 JSON이 있어 페이지에 차트를 넣을지 여부.
     """
     return StockReport(
         stock_code=security.stock_code,
@@ -38,4 +47,6 @@ def build_stock_report(
         data_date=data_date,
         basis=basis if basis is not None else MetricsBasis(),
         has_price_chart=has_price_chart,
+        financial_history=financial_history,
+        has_financial_chart=has_financial_chart,
     )

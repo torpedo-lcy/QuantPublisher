@@ -13,7 +13,8 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-from quantpublisher.report.models import MetricsBasis, StockReport
+from quantpublisher.analysis.performance import Change, ChangeKind, classify_change
+from quantpublisher.report.models import FinancialYear, MetricsBasis, StockReport
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,98 @@ def _format_metric(value: float | None) -> str:
     if value is None:
         return "N/A"
     return f"{value:.2f}"
+
+
+_WON_PER_JO = 1_000_000_000_000  # 1조원
+_WON_PER_EOK = 100_000_000  # 1억원
+
+
+def _format_won(value: float | None) -> str:
+    """원 단위 금액을 읽기 쉬운 문자열로 바꾼다 (예: "333.61조원", "-1,234억원").
+
+    1조원 이상은 조원(소수 둘째 자리), 그 미만은 억원(정수), 1억원 미만은 원으로
+    표시한다. None이면 "N/A"를 반환한다.
+    """
+    if value is None:
+        return "N/A"
+    if abs(value) >= _WON_PER_JO:
+        return f"{value / _WON_PER_JO:,.2f}조원"
+    if abs(value) >= _WON_PER_EOK:
+        return f"{value / _WON_PER_EOK:,.0f}억원"
+    return f"{value:,.0f}원"
+
+
+def _comparison_text(change: Change | None, previous: float | None) -> str:
+    """전기 대비 변화를 괄호 안에 넣을 문구로 바꾼다. 비교할 수 없으면 "전년 N/A"."""
+    if change is None:
+        return "전년 N/A"
+    prev = _format_won(previous)
+    kind = change.kind
+    if kind in (ChangeKind.INCREASE, ChangeKind.DECREASE) and change.rate is not None:
+        return f"전년 {prev} 대비 {change.rate:+.2f}%"
+    labels = {
+        ChangeKind.UNCHANGED: "전년과 동일",
+        ChangeKind.TURNED_PROFIT: "흑자전환",
+        ChangeKind.TURNED_LOSS: "적자전환",
+        ChangeKind.LOSS_NARROWED: "적자 축소",
+        ChangeKind.LOSS_WIDENED: "적자 확대",
+    }
+    return f"전년 {prev}, {labels.get(kind, '비교 불가')}"
+
+
+def _is_comparable_year(latest: FinancialYear, previous: FinancialYear) -> bool:
+    """직전 연도이고 연결/별도 기준이 충돌하지 않으면 True (없는 쪽은 충돌로 보지 않는다)."""
+    if previous.year != latest.year - 1:
+        return False
+    if latest.is_consolidated is None or previous.is_consolidated is None:
+        return True
+    return latest.is_consolidated == previous.is_consolidated
+
+
+def _performance_lines(report: StockReport) -> list[str]:
+    """재무 시계열로 '주요 실적' 요약 문장(Markdown 목록 항목)을 만든다.
+
+    가장 최근 연도를 직전 연도와 비교한다. 직전 연도가 없거나 연결/별도 기준이
+    다르면 비교하지 않고 그 사실을 적는다. 시계열이 없으면 빈 목록이다.
+    """
+    history = report.financial_history
+    if not history:
+        return []
+    latest = history[-1]
+    consolidation = _consolidation_label(latest.is_consolidated)
+    basis = f"{latest.year}년 연간" + (f", {consolidation}" if consolidation else "")
+    lines = [f"- 기준: {basis}"]
+    previous = history[-2] if len(history) >= 2 else None
+    comparable = previous is not None and _is_comparable_year(latest, previous)
+    if not comparable:
+        lines.append(
+            "- 전년 대비 증감: 비교할 수 없음 (직전 연도 데이터가 없거나 연결/별도 기준이 다름)"
+        )
+        previous = None
+
+    for label, current, before in (
+        ("매출액", latest.sales, previous.sales if previous else None),
+        ("영업이익", latest.operating_income, previous.operating_income if previous else None),
+        ("순이익", latest.net_income, previous.net_income if previous else None),
+    ):
+        if current is None:
+            continue
+        text = f"- {label}: {latest.year}년 {_format_won(current)}"
+        if previous is not None:
+            text += f" ({_comparison_text(classify_change(current, before), before)})"
+        lines.append(text)
+
+    for label, current_ratio, before_ratio in (
+        ("영업이익률", latest.operating_margin, previous.operating_margin if previous else None),
+        ("ROE", latest.roe, previous.roe if previous else None),
+    ):
+        if current_ratio is None:
+            continue
+        text = f"- {label}: {current_ratio:.2f}%"
+        if before_ratio is not None:
+            text += f" (전년 {before_ratio:.2f}%, {current_ratio - before_ratio:+.2f}%p)"
+        lines.append(text)
+    return lines
 
 
 def _consolidation_label(is_consolidated: int | None) -> str:
@@ -87,9 +180,12 @@ def _build_environment() -> Environment:
     )
     env.filters["fmt_metric"] = _format_metric
     env.filters["basis_cell"] = _basis_cell
+    env.filters["fmt_won"] = _format_won
+    env.filters["consolidation_label"] = _consolidation_label
     env.globals["statement_basis"] = _statement_basis
     env.globals["growth_basis"] = _growth_basis
     env.globals["valuation_basis"] = _valuation_basis
+    env.globals["performance_lines"] = _performance_lines
     return env
 
 

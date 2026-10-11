@@ -7,7 +7,7 @@ from pathlib import Path
 from quantpublisher.database.models import PriceDaily
 from quantpublisher.report.chart_data import (
     build_price_chart_data,
-    render_price_chart_json,
+    render_chart_json,
     write_price_chart_json,
 )
 
@@ -47,13 +47,13 @@ def test_build_price_chart_data_returns_none_without_usable_rows() -> None:
     assert build_price_chart_data("005930", [_price("2026-10-08", None)]) is None
 
 
-def test_render_price_chart_json_is_compact_and_deterministic() -> None:
+def test_render_chart_json_is_compact_and_deterministic() -> None:
     data = build_price_chart_data("005930", [_price("2026-10-08", 5.0)])
     assert data is not None
 
-    text = render_price_chart_json(data)
+    text = render_chart_json(data)
 
-    assert text == render_price_chart_json(data)
+    assert text == render_chart_json(data)
     assert " " not in text
     assert json.loads(text) == data
 

@@ -81,11 +81,12 @@ th, td {
   border-top: 1px solid var(--border);
 }
 
-.price-chart {
+.price-chart,
+.financial-chart {
   margin: 1rem 0;
 }
 
-.price-chart-legend {
+.chart-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem 0.9rem;
@@ -94,16 +95,16 @@ th, td {
   color: var(--muted);
 }
 
-.price-chart-date {
+.chart-legend-head {
   font-weight: 600;
   color: var(--fg);
 }
 
-.price-chart-item {
+.chart-legend-item {
   white-space: nowrap;
 }
 
-.price-chart-swatch {
+.chart-legend-swatch {
   display: inline-block;
   width: 0.7rem;
   height: 0.7rem;
@@ -112,11 +113,12 @@ th, td {
   vertical-align: -1px;
 }
 
-.price-chart-status {
+.chart-status {
   color: var(--muted);
   font-size: 0.85rem;
 }
 
-.price-chart .u-legend {
+.price-chart .u-legend,
+.financial-chart .u-legend {
   display: none;
 }

@@ -41,3 +41,23 @@ draft: false
 | 부채비율 (%) | {{ m.debt_ratio | fmt_metric }} | {{ m.debt_ratio | basis_cell(fin) }} |
 | 배당수익률 (%) | {{ m.dividend_yield | fmt_metric }} | {{ m.dividend_yield | basis_cell("N/A") }} |
 | 매출성장률 (%) | {{ m.revenue_growth_rate | fmt_metric }} | {{ m.revenue_growth_rate | basis_cell(growth) }} |
+{% if report.financial_history %}
+
+## 재무 시계열
+
+{% if report.has_financial_chart %}
+{{ '{{< financialchart code="' ~ report.stock_code ~ '" >}}' }}
+
+{% endif %}
+| 연도 | 기준 | 매출액 | 영업이익 | 순이익 | 영업이익률 (%) | ROE (%) |
+|---|---|---|---|---|---|---|
+{% for item in report.financial_history | reverse %}
+| {{ item.year }} | {{ item.is_consolidated | consolidation_label or "-" }} | {{ item.sales | fmt_won }} | {{ item.operating_income | fmt_won }} | {{ item.net_income | fmt_won }} | {{ item.operating_margin | fmt_metric }} | {{ item.roe | fmt_metric }} |
+{% endfor %}
+
+## 주요 실적 요약
+
+{% for line in performance_lines(report) %}
+{{ line }}
+{% endfor %}
+{% endif %}
