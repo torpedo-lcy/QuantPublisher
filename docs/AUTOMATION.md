@@ -16,6 +16,7 @@ Mac mini에서 daily_update 파이프라인을 수동/자동으로 실행하는 
 1. init_db              DB 스키마 초기화 (idempotent)
 2. collect_krx_listing   KRX 종목 목록 수집 → securities 테이블 upsert
 3. 리포트 생성            활성 종목별 Markdown → website/content/stocks/*.md
+                         가격 차트 JSON → website/static/charts/prices/*.json
 ```
 
 3단계에서 종목마다 `financial_statements`(최신 연간)와 `financial_metrics`(최신 월)를
@@ -47,7 +48,7 @@ cd /Users/home_lcy2/project/QuantPublisher
 ./scripts/daily_update.sh
 ```
 
-`website/content`에 변경 사항이 있을 때만 commit/push한다. 변경 사항이
+`website/content`와 `website/static/charts`에 변경 사항이 있을 때만 commit/push한다. 변경 사항이
 없으면 commit 없이 정상 종료(exit 0)한다.
 
 ## 3. launchd 자동 실행 설치

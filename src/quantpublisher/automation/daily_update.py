@@ -31,11 +31,15 @@ from quantpublisher.database.price_repository import PriceRepository
 from quantpublisher.database.security_repository import SecurityRepository
 from quantpublisher.automation.stock_metrics import load_stock_metrics
 from quantpublisher.report import build_stock_report, write_stock_report_markdown
+from quantpublisher.report.chart_data import CHART_MAX_ROWS, write_price_chart_json
 
 logger = logging.getLogger(__name__)
 
 # website/content/stocks/ - Hugo가 그대로 콘텐츠로 인식하는 디렉터리.
 _DEFAULT_CONTENT_RELATIVE_DIR = Path("website") / "content" / "stocks"
+# website/static/charts/prices/ - 가격 차트 JSON. Hugo가 그대로 정적 파일로 배포한다.
+# (.gitignore의 `data/`에 걸리지 않도록 `data`가 아닌 `charts`를 쓴다.)
+_CHART_RELATIVE_DIR = Path("static") / "charts" / "prices"
 
 
 class DailyUpdateError(Exception):
@@ -59,6 +63,7 @@ def run_daily_update(
     db_path: Path | None = None,
     content_dir: Path | None = None,
     settings: Settings | None = None,
+    chart_dir: Path | None = None,
 ) -> DailyUpdateResult:
     """crawler -> database -> report 파이프라인을 순서대로 실행한다.
 
@@ -82,6 +87,9 @@ def run_daily_update(
         content_dir: Markdown 리포트를 생성할 디렉터리 (Hugo content).
             지정하지 않으면 PROJECT_ROOT/website/content/stocks 사용.
         settings: 주입용 Settings. 지정하지 않으면 get_settings() 사용.
+        chart_dir: 가격 차트 JSON을 생성할 디렉터리. 지정하지 않으면 content_dir가
+            website/content/stocks일 때의 website/static/charts/prices 위치
+            (content_dir의 두 단계 위 + static/charts/prices)를 쓴다.
 
     Returns:
         DailyUpdateResult: 수집/생성 건수와 소요 시간.
@@ -95,18 +103,25 @@ def run_daily_update(
         content_dir if content_dir is not None else PROJECT_ROOT / _DEFAULT_CONTENT_RELATIVE_DIR
     )
 
+    resolved_chart_dir = (
+        chart_dir
+        if chart_dir is not None
+        else resolved_content_dir.parent.parent / _CHART_RELATIVE_DIR
+    )
+
     started_at = time.monotonic()
     logger.info(
-        "daily_update_started db_path=%s content_dir=%s",
+        "daily_update_started db_path=%s content_dir=%s chart_dir=%s",
         resolved_db_path,
         resolved_content_dir,
+        resolved_chart_dir,
     )
 
     _initialize_database(resolved_db_path)
 
     database = Database(resolved_db_path)
     securities_collected = _collect_securities(database)
-    reports_generated = _generate_reports(database, resolved_content_dir)
+    reports_generated = _generate_reports(database, resolved_content_dir, resolved_chart_dir)
 
     elapsed_seconds = time.monotonic() - started_at
     logger.info(
@@ -149,7 +164,7 @@ def _collect_securities(database: Database) -> int:
     return count
 
 
-def _generate_reports(database: Database, content_dir: Path) -> int:
+def _generate_reports(database: Database, content_dir: Path, chart_dir: Path) -> int:
     """등록된 활성 종목에 대해 Markdown 리포트를 생성한다.
 
     실패 시 DailyUpdateError로 변환한다.
@@ -158,7 +173,7 @@ def _generate_reports(database: Database, content_dir: Path) -> int:
     try:
         with database.connect() as connection:
             securities = SecurityRepository(connection).list_all(active_only=True)
-            count = _write_reports(connection, securities, content_dir)
+            count = _write_reports(connection, securities, content_dir, chart_dir)
     except Exception as exc:
         logger.exception("daily_update_step_failed step=generate_reports")
         raise DailyUpdateError(f"리포트 생성 중 오류가 발생했습니다: {exc}") from exc
@@ -171,6 +186,7 @@ def _write_reports(
     connection: sqlite3.Connection,
     securities: Iterable[Security],
     content_dir: Path,
+    chart_dir: Path,
 ) -> int:
     """종목별 지표를 계산해 Markdown 리포트를 생성하고 파일 수를 반환한다.
 
@@ -180,24 +196,34 @@ def _write_reports(
     count = 0
     with_statements = 0
     with_valuation = 0
-    latest_trade_dates = PriceRepository(connection).get_latest_trade_dates()
+    with_chart = 0
+    price_repository = PriceRepository(connection)
+    latest_trade_dates = price_repository.get_latest_trade_dates()
     for security in securities:
         metrics, basis = load_stock_metrics(connection, security.stock_code)
+        recent_prices = price_repository.list_recent_by_code(
+            security.stock_code, CHART_MAX_ROWS
+        )
+        chart_path = write_price_chart_json(security.stock_code, recent_prices, chart_dir)
         report = build_stock_report(
             security,
             metrics,
             data_date=latest_trade_dates.get(security.stock_code),
             basis=basis,
+            has_price_chart=chart_path is not None,
         )
         write_stock_report_markdown(report, content_dir)
         count += 1
         with_statements += basis.statement_year is not None
         with_valuation += basis.valuation_month is not None
+        with_chart += chart_path is not None
     logger.info(
-        "report_metrics_coverage reports=%d with_statements=%d with_valuation=%d",
+        "report_metrics_coverage reports=%d with_statements=%d with_valuation=%d "
+        "with_chart=%d",
         count,
         with_statements,
         with_valuation,
+        with_chart,
     )
     return count
 

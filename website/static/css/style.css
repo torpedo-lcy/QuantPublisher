@@ -80,3 +80,22 @@ th, td {
   padding: 1.5rem;
   border-top: 1px solid var(--border);
 }
+
+.price-chart {
+  margin: 1rem 0;
+}
+
+.price-chart-legend {
+  min-height: 1.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.price-chart-status {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.price-chart .u-legend {
+  display: none;
+}

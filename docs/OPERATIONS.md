@@ -66,8 +66,8 @@ ls public/stocks | head
 수동으로 하려면:
 
 ```bash
-git status --short -- website/content | head
-git add website/content
+git status --short -- website/content website/static/charts | head
+git add website/content website/static/charts
 git commit -m "chore: daily report update $(date '+%Y-%m-%d')"
 git push
 ```

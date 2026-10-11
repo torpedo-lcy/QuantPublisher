@@ -12,6 +12,12 @@ draft: false
 
 - 시장: {{ report.market }}
 - 데이터 기준일: {{ report.data_date or "N/A" }}
+{% if report.has_price_chart %}
+
+## 가격 차트
+
+{{ '{{< pricechart code="' ~ report.stock_code ~ '" >}}' }}
+{% endif %}
 
 {% set m = report.metrics %}
 {% set fin = statement_basis(report.basis) %}

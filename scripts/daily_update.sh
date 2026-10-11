@@ -42,19 +42,22 @@ if ! uv run python -m quantpublisher.automation.daily_update; then
     exit 1
 fi
 
-# ── 2) website content 변경 사항 commit/push ───────────────────────────
+# ── 2) website content / 차트 데이터 변경 사항 commit/push ──────────────
 if ! command -v git >/dev/null 2>&1; then
     echo "[daily_update] git 명령을 찾을 수 없습니다. commit/push를 건너뜁니다." >&2
     exit 0
 fi
 
-if [ -z "$(git status --porcelain -- website/content)" ]; then
-    echo "[daily_update] website/content에 변경 사항이 없어 commit을 건너뜁니다."
+# 종목 페이지(content)와 가격 차트 JSON(static/charts)이 배포 대상이다.
+PUBLISH_PATHS=(website/content website/static/charts)
+
+if [ -z "$(git status --porcelain -- "${PUBLISH_PATHS[@]}")" ]; then
+    echo "[daily_update] ${PUBLISH_PATHS[*]}에 변경 사항이 없어 commit을 건너뜁니다."
     echo "[daily_update] 완료: $(date '+%Y-%m-%d %H:%M:%S')"
     exit 0
 fi
 
-if ! git add website/content; then
+if ! git add -- "${PUBLISH_PATHS[@]}"; then
     echo "[daily_update] git add 실패." >&2
     exit 1
 fi

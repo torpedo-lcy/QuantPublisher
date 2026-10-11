@@ -184,6 +184,32 @@ def test_run_daily_update_uses_latest_trade_date_as_data_date(
     assert "데이터 기준일: 2026-07-31" in text
 
 
+def test_run_daily_update_writes_price_chart_json_and_shortcode(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    records = _load_fixture("krx_listing_sample.json")
+    _patch_fdr_success(monkeypatch, records)
+    content_dir = tmp_path / "website" / "content" / "stocks"
+    chart_dir = tmp_path / "website" / "static" / "charts" / "prices"
+    run_daily_update(content_dir=content_dir, settings=settings)
+    codes = sorted(p.stem for p in content_dir.glob("*.md"))
+    with_prices, without_prices = codes[0], codes[1]
+    with Database(settings.db_path).connect() as connection:
+        PriceRepository(connection).upsert_many(
+            [PriceDaily(with_prices, "2026-07-31", 1.0, 2.0, 0.5, 1.5, 10.0)]
+        )
+
+    run_daily_update(content_dir=content_dir, settings=settings)
+
+    # chart_dir를 지정하지 않아도 content_dir 기준 website/static/charts/prices에 생성된다.
+    assert (chart_dir / f"{with_prices}.json").exists()
+    assert not (chart_dir / f"{without_prices}.json").exists()
+    with_text = (content_dir / f"{with_prices}.md").read_text(encoding="utf-8")
+    without_text = (content_dir / f"{without_prices}.md").read_text(encoding="utf-8")
+    assert f'{{{{< pricechart code="{with_prices}" >}}}}' in with_text
+    assert "pricechart" not in without_text
+
+
 def test_run_daily_update_uses_settings_db_path_by_default(
     settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

@@ -73,6 +73,26 @@ class PriceRepository:
         ).fetchall()
         return {row["stock_code"]: row["latest"] for row in rows}
 
+    def list_recent_by_code(self, stock_code: str, limit: int) -> list[PriceDaily]:
+        """한 종목의 최근 limit개 일봉을 거래일 오름차순으로 반환한다."""
+        rows = self._connection.execute(
+            "SELECT * FROM prices_daily WHERE stock_code = ? "
+            "ORDER BY trade_date DESC LIMIT ?",
+            (stock_code, limit),
+        ).fetchall()
+        return [
+            PriceDaily(
+                stock_code=r["stock_code"],
+                trade_date=r["trade_date"],
+                open=r["open"],
+                high=r["high"],
+                low=r["low"],
+                close=r["close"],
+                volume=r["volume"],
+            )
+            for r in reversed(rows)
+        ]
+
     def list_by_code(self, stock_code: str) -> list[PriceDaily]:
         """한 종목의 일봉을 거래일 오름차순으로 반환한다."""
         rows = self._connection.execute(

@@ -67,6 +67,7 @@ class StockReport:
             아니라 데이터에서 정해지므로 데이터가 같으면 렌더링 결과도 같다.
             가격 데이터가 없으면 None.
         basis: 지표의 기준 연도/월과 연결/별도 구분. 지정하지 않으면 모두 None.
+        has_price_chart: 가격 차트 JSON이 생성되어 페이지에 차트를 넣을 수 있는지 여부.
     """
 
     stock_code: str
@@ -75,3 +76,4 @@ class StockReport:
     metrics: StockMetrics
     data_date: str | None = None
     basis: MetricsBasis = MetricsBasis()
+    has_price_chart: bool = False

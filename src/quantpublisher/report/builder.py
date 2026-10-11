@@ -16,6 +16,7 @@ def build_stock_report(
     metrics: StockMetrics,
     data_date: str | None = None,
     basis: MetricsBasis | None = None,
+    has_price_chart: bool = False,
 ) -> StockReport:
     """Security와 StockMetrics로부터 StockReport를 생성한다.
 
@@ -27,6 +28,7 @@ def build_stock_report(
             지정하지 않으면 None이며 페이지에는 "N/A"로 표시된다.
         basis: 지표의 기준 연도/월과 연결/별도 구분. 지정하지 않으면
             기준 정보가 없는 MetricsBasis()를 사용한다.
+        has_price_chart: 가격 차트 JSON이 있어 페이지에 차트를 넣을지 여부.
     """
     return StockReport(
         stock_code=security.stock_code,
@@ -35,4 +37,5 @@ def build_stock_report(
         metrics=metrics,
         data_date=data_date,
         basis=basis if basis is not None else MetricsBasis(),
+        has_price_chart=has_price_chart,
     )
