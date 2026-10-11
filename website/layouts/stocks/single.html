@@ -8,6 +8,9 @@
     {{ with .Params.market }} &middot; 시장: {{ . }}{{ end }}
     {{ if not .Date.IsZero }} &middot; 데이터 기준일: {{ .Date.Format "2006-01-02" }}{{ end }}
   </p>
+  {{ with .TableOfContents }}
+  <nav class="stock-toc" aria-label="목차">{{ . }}</nav>
+  {{ end }}
   {{ .Content }}
 </article>
 {{ end }}

@@ -306,6 +306,7 @@ def test_markdown_renders_company_section() -> None:
     )
 
     assert "## 기업 개요" in markdown
+    assert markdown.index("## 주요 지표") < markdown.index("## 기업 개요")
     assert "| 업종 | 전자부품, 컴퓨터, 영상, 음향 및 통신장비 제조업 (KSIC 264) |" in markdown
     assert "| 설립일 | 1969-01-13 |" in markdown
     assert "| 홈페이지 | `www.example.com` |" in markdown
@@ -348,7 +349,7 @@ def test_markdown_neutralizes_hugo_shortcodes_and_markdown_in_external_text() ->
         )
     )
 
-    assert "{{<" not in markdown.split("## 주요 지표")[0]
+    assert "{{<" not in markdown.split("## 기업 개요")[1]
     assert "{{%" not in markdown
     assert "<script>" not in markdown
     assert "[링크]" not in markdown.replace("\\[링크\\]", "")

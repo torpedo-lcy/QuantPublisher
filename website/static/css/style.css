@@ -122,3 +122,64 @@ th, td {
 .financial-chart .u-legend {
   display: none;
 }
+
+.site-main {
+  max-width: 960px;
+}
+
+.stock-page h2 {
+  margin-top: 2.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.stock-page h3 {
+  margin-top: 1.5rem;
+}
+
+.stock-toc {
+  margin: 1rem 0 0;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.stock-toc ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stock-toc a {
+  text-decoration: none;
+  color: var(--accent);
+}
+
+.stock-page table {
+  display: block;
+  overflow-x: auto;
+  font-size: 0.92rem;
+}
+
+.stock-page th {
+  background: #f6f8fa;
+  white-space: nowrap;
+}
+
+.stock-page td {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px) {
+  .site-main {
+    padding: 1.25rem 1rem;
+  }
+
+  .site-header {
+    padding: 0.8rem 1rem;
+  }
+}
