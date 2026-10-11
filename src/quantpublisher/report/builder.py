@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from quantpublisher.database.models import Security
 from quantpublisher.report.models import (
+    CompanyInfo,
     FinancialYear,
     MetricsBasis,
     StockMetrics,
@@ -24,6 +25,7 @@ def build_stock_report(
     has_price_chart: bool = False,
     financial_history: tuple[FinancialYear, ...] = (),
     has_financial_chart: bool = False,
+    company: CompanyInfo | None = None,
 ) -> StockReport:
     """Security와 StockMetrics로부터 StockReport를 생성한다.
 
@@ -38,6 +40,7 @@ def build_stock_report(
         has_price_chart: 가격 차트 JSON이 있어 페이지에 차트를 넣을지 여부.
         financial_history: 연간 재무 시계열 (연도 오름차순).
         has_financial_chart: 재무 차트 JSON이 있어 페이지에 차트를 넣을지 여부.
+        company: 기업 개요. 수집되지 않았으면 None.
     """
     return StockReport(
         stock_code=security.stock_code,
@@ -49,4 +52,5 @@ def build_stock_report(
         has_price_chart=has_price_chart,
         financial_history=financial_history,
         has_financial_chart=has_financial_chart,
+        company=company,
     )

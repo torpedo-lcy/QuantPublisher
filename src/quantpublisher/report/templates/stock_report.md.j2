@@ -12,6 +12,53 @@ draft: false
 
 - 시장: {{ report.market }}
 - 데이터 기준일: {{ report.data_date or "N/A" }}
+{% if report.company %}
+{% set co = report.company %}
+
+## 기업 개요
+
+| 항목 | 내용 |
+|---|---|
+{% if co.industry_code %}
+| 업종 | {{ co.industry_name | md_text or "분류명 없음" }} (KSIC {{ co.industry_code }}) |
+{% endif %}
+{% if co.established_date %}
+| 설립일 | {{ co.established_date }} |
+{% endif %}
+{% if co.ceo_name %}
+| 대표자 | {{ co.ceo_name | md_text }} |
+{% endif %}
+{% if co.address %}
+| 본점 소재지 | {{ co.address | md_text }} |
+{% endif %}
+{% if co.homepage %}
+| 홈페이지 | {{ co.homepage | md_code }} |
+{% endif %}
+{% if co.fiscal_month %}
+| 결산월 | {{ co.fiscal_month }}월 |
+{% endif %}
+{% if co.business_summary %}
+
+### 사업 내용
+
+{{ co.business_summary | md_text }}
+{% endif %}
+{% if co.history %}
+
+### 연혁
+
+{% for year, events in co.history | groupby(0) | reverse %}
+- **{{ year }}**
+{% for _, event in events %}
+  - {{ event | md_text }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+{% if co.business_summary or co.history %}
+
+출처: DART 사업보고서{% if co.report_year %} ({{ co.report_year }}년 사업연도){% endif %}에서 발췌
+{% endif %}
+{% endif %}
 {% if report.has_price_chart %}
 
 ## 가격 차트

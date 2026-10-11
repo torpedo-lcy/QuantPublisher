@@ -73,6 +73,23 @@ CREATE TABLE IF NOT EXISTS financial_metrics (
     PRIMARY KEY (stock_code, year_month),
     FOREIGN KEY (stock_code) REFERENCES securities(stock_code)
 );
+
+-- 기업 개요 (Task 019). 원천은 DART company.json과 최신 사업보고서 본문.
+CREATE TABLE IF NOT EXISTS company_profiles (
+    stock_code        TEXT PRIMARY KEY,
+    induty_code       TEXT,           -- KSIC 업종코드 (DART company.json)
+    established_date  TEXT,           -- YYYY-MM-DD
+    ceo_name          TEXT,
+    address           TEXT,
+    homepage          TEXT,
+    fiscal_month      INTEGER,        -- 결산월 (1~12)
+    business_summary  TEXT,           -- 사업보고서 '사업의 개요' 발췌
+    history_json      TEXT,           -- 연혁 [[연도, 내용], ...] (JSON)
+    report_rcept_no   TEXT,           -- 본문을 가져온 사업보고서 접수번호
+    report_year       INTEGER,        -- 그 사업보고서의 사업연도
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (stock_code) REFERENCES securities(stock_code)
+);
 """
 
 # 기존 DB를 깨뜨리지 않고 추가하는 컬럼: (테이블, 컬럼, 타입).

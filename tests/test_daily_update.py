@@ -24,8 +24,9 @@ from quantpublisher.automation.daily_update import (
     run_daily_update,
 )
 from quantpublisher.database.core import Database
+from quantpublisher.database.company_profile_repository import CompanyProfileRepository
 from quantpublisher.database.financial_repository import FinancialRepository
-from quantpublisher.database.models import FinancialStatement, PriceDaily
+from quantpublisher.database.models import CompanyProfile, FinancialStatement, PriceDaily
 from quantpublisher.database.price_repository import PriceRepository
 from quantpublisher.database.security_repository import SecurityRepository
 
@@ -243,6 +244,28 @@ def test_run_daily_update_writes_financial_section_and_chart_json(
     assert not (chart_dir / f"{single}.json").exists()
     assert "financialchart" not in single_text
     assert "## 재무 시계열" not in none_text
+
+
+def test_run_daily_update_renders_company_section_only_for_collected_profiles(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    records = _load_fixture("krx_listing_sample.json")
+    _patch_fdr_success(monkeypatch, records)
+    content_dir = tmp_path / "website" / "content" / "stocks"
+    run_daily_update(content_dir=content_dir, settings=settings)
+    codes = sorted(p.stem for p in content_dir.glob("*.md"))
+    with Database(settings.db_path).connect() as connection:
+        CompanyProfileRepository(connection).upsert(
+            CompanyProfile(codes[0], induty_code="264", business_summary="반도체를 만듭니다.")
+        )
+
+    run_daily_update(content_dir=content_dir, settings=settings)
+
+    with_profile = (content_dir / f"{codes[0]}.md").read_text(encoding="utf-8")
+    without_profile = (content_dir / f"{codes[1]}.md").read_text(encoding="utf-8")
+    assert "## 기업 개요" in with_profile
+    assert "반도체를 만듭니다." in with_profile
+    assert "기업 개요" not in without_profile
 
 
 def test_run_daily_update_uses_settings_db_path_by_default(

@@ -9,6 +9,7 @@ template -> Markdown).
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -31,6 +32,35 @@ def _format_metric(value: float | None) -> str:
     if value is None:
         return "N/A"
     return f"{value:.2f}"
+
+
+_MD_SPECIAL = re.compile(r"([\\`*_\[\]<>|~#])")
+_MD_LIST_START = re.compile(r"^(\d+[.)]|[-+*])\s")
+
+
+def _md_text(value: object) -> str:
+    """외부(DART) 텍스트를 Markdown 본문/표 칸에 안전하게 넣을 수 있게 바꾼다.
+
+    공백을 한 칸으로 줄이고, Markdown 특수문자를 이스케이프하며, Hugo가 shortcode로
+    해석하는 `{{`를 깨뜨린다 (사업보고서 본문이 shortcode를 실행하지 못하게 한다).
+    값이 None이면 빈 문자열이다.
+    """
+    if value is None:
+        return ""
+    text = " ".join(str(value).split())
+    text = _MD_SPECIAL.sub(r"\\\1", text)
+    text = text.replace("{{", "{&#8203;{").replace("}}", "}&#8203;}")
+    if _MD_LIST_START.match(text):
+        text = "\\" + text
+    return text
+
+
+def _md_code(value: object) -> str:
+    """값을 인라인 코드로 감싼다 (링크로 해석되지 않는다). 빈 값이면 빈 문자열."""
+    if value is None:
+        return ""
+    text = " ".join(str(value).replace("`", "").split())
+    return f"`{text}`" if text else ""
 
 
 _WON_PER_JO = 1_000_000_000_000  # 1조원
@@ -181,6 +211,8 @@ def _build_environment() -> Environment:
     env.filters["fmt_metric"] = _format_metric
     env.filters["basis_cell"] = _basis_cell
     env.filters["fmt_won"] = _format_won
+    env.filters["md_text"] = _md_text
+    env.filters["md_code"] = _md_code
     env.filters["consolidation_label"] = _consolidation_label
     env.globals["statement_basis"] = _statement_basis
     env.globals["growth_basis"] = _growth_basis

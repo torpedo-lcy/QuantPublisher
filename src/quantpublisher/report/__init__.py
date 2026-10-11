@@ -1,6 +1,6 @@
 """quantpublisher.report 패키지.
 
-FinancialYear, MetricsBasis, StockMetrics, StockReport, build_stock_report, render_stock_report_markdown,
+CompanyInfo, FinancialYear, MetricsBasis, StockMetrics, StockReport, build_stock_report, render_stock_report_markdown,
 write_stock_report_markdown을 패키지 최상위에서 노출한다.
 """
 
@@ -10,6 +10,7 @@ from quantpublisher.report.markdown import (
     write_stock_report_markdown,
 )
 from quantpublisher.report.models import (
+    CompanyInfo,
     FinancialYear,
     MetricsBasis,
     StockMetrics,
@@ -17,6 +18,7 @@ from quantpublisher.report.models import (
 )
 
 __all__ = [
+    "CompanyInfo",
     "FinancialYear",
     "MetricsBasis",
     "StockMetrics",

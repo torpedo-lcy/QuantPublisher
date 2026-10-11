@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -44,6 +44,7 @@ class Settings:
         log_dir: 로그 파일 디렉터리.
         log_level: 로깅 레벨 (예: "INFO", "DEBUG").
         external_mac: 외부 Mac 접속 설정. QP_EXTERNAL_HOST가 없으면 None.
+        dart_api_key: OpenDART API 키(QP_DART_API_KEY). 없으면 None. repr에 노출되지 않는다.
     """
 
     environment: str
@@ -52,6 +53,7 @@ class Settings:
     log_dir: Path
     log_level: str
     external_mac: ExternalMacSettings | None = None
+    dart_api_key: str | None = field(default=None, repr=False)
 
 
 def _load_external_mac() -> ExternalMacSettings | None:
@@ -123,4 +125,5 @@ def get_settings() -> Settings:
         log_dir=Path(os.environ.get("QP_LOG_DIR", str(default_log_dir))),
         log_level=os.environ.get("QP_LOG_LEVEL", "INFO"),
         external_mac=_load_external_mac(),
+        dart_api_key=os.environ.get("QP_DART_API_KEY", "").strip() or None,
     )

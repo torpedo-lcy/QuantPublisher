@@ -108,3 +108,34 @@ class FinancialMetric:
     pbr: float | None = None
     psr: float | None = None
     pcr: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompanyProfile:
+    """기업 개요 한 행 (Task 019). 값이 없으면 None이다.
+
+    Attributes:
+        stock_code: 종목코드. securities.stock_code를 참조한다.
+        induty_code: KSIC 업종코드 (DART company.json의 induty_code).
+        established_date: 설립일 (YYYY-MM-DD).
+        ceo_name: 대표자명.
+        address: 본점 소재지.
+        homepage: 홈페이지 주소 (원천 그대로, 스킴이 없을 수 있다).
+        fiscal_month: 결산월 (1~12).
+        business_summary: 사업보고서 '사업의 개요'에서 발췌한 요약.
+        history_json: 연혁을 [[연도, 내용], ...] 형태로 담은 JSON 문자열.
+        report_rcept_no: 본문을 가져온 사업보고서 접수번호.
+        report_year: 그 사업보고서의 사업연도.
+    """
+
+    stock_code: str
+    induty_code: str | None = None
+    established_date: str | None = None
+    ceo_name: str | None = None
+    address: str | None = None
+    homepage: str | None = None
+    fiscal_month: int | None = None
+    business_summary: str | None = None
+    history_json: str | None = None
+    report_rcept_no: str | None = None
+    report_year: int | None = None

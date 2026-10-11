@@ -32,6 +32,7 @@ def test_get_settings_returns_defaults_when_env_vars_unset(monkeypatch):
     monkeypatch.delenv("QP_DB_PATH", raising=False)
     monkeypatch.delenv("QP_LOG_DIR", raising=False)
     monkeypatch.delenv("QP_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("QP_DART_API_KEY", raising=False)
     for name in _EXTERNAL_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
     # 개발자의 실제 .env(외부 Mac 설정 등)가 기본값 검증에 섞이지 않게 한다.
@@ -46,6 +47,21 @@ def test_get_settings_returns_defaults_when_env_vars_unset(monkeypatch):
         log_dir=PROJECT_ROOT / "logs",
         log_level="INFO",
     )
+
+
+def test_get_settings_reads_dart_api_key_without_exposing_it_in_repr(monkeypatch):
+    monkeypatch.setenv("QP_DART_API_KEY", "  secret-key-value  ")
+
+    settings = get_settings()
+
+    assert settings.dart_api_key == "secret-key-value"
+    assert "secret-key-value" not in repr(settings)
+
+
+def test_get_settings_dart_api_key_is_none_when_blank(monkeypatch):
+    monkeypatch.setenv("QP_DART_API_KEY", "   ")
+
+    assert get_settings().dart_api_key is None
 
 
 def test_get_settings_reads_environment_variables(monkeypatch):

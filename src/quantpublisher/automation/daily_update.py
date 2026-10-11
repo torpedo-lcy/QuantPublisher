@@ -25,10 +25,12 @@ from typing import Iterable
 
 from config.settings import PROJECT_ROOT, Settings, get_settings
 from quantpublisher.crawler.krx_listing import KrxListingFetchError, collect_krx_listing
+from quantpublisher.database.company_profile_repository import CompanyProfileRepository
 from quantpublisher.database.core import Database, init_db
 from quantpublisher.database.models import Security
 from quantpublisher.database.price_repository import PriceRepository
 from quantpublisher.database.security_repository import SecurityRepository
+from quantpublisher.automation.company_info import build_company_info
 from quantpublisher.automation.stock_metrics import load_financial_history, load_stock_metrics
 from quantpublisher.report import build_stock_report, write_stock_report_markdown
 from quantpublisher.report.chart_data import (
@@ -202,7 +204,9 @@ def _write_reports(
     with_valuation = 0
     with_chart = 0
     with_history = 0
+    with_company = 0
     price_repository = PriceRepository(connection)
+    company_profiles = CompanyProfileRepository(connection).list_all()
     latest_trade_dates = price_repository.get_latest_trade_dates()
     for security in securities:
         metrics, basis = load_stock_metrics(connection, security.stock_code)
@@ -224,6 +228,7 @@ def _write_reports(
             has_price_chart=chart_path is not None,
             financial_history=history,
             has_financial_chart=financial_chart_path is not None,
+            company=build_company_info(company_profiles.get(security.stock_code)),
         )
         write_stock_report_markdown(report, content_dir)
         count += 1
@@ -231,14 +236,16 @@ def _write_reports(
         with_valuation += basis.valuation_month is not None
         with_chart += chart_path is not None
         with_history += bool(history)
+        with_company += report.company is not None
     logger.info(
         "report_metrics_coverage reports=%d with_statements=%d with_valuation=%d "
-        "with_chart=%d with_history=%d",
+        "with_chart=%d with_history=%d with_company=%d",
         count,
         with_statements,
         with_valuation,
         with_chart,
         with_history,
+        with_company,
     )
     return count
 
