@@ -2,14 +2,16 @@
 title: "{{ report.name }} ({{ report.stock_code }})"
 stock_code: "{{ report.stock_code }}"
 market: "{{ report.market }}"
-date: "{{ report.generated_at }}"
+{% if report.data_date %}
+date: "{{ report.data_date }}"
+{% endif %}
 draft: false
 ---
 
 # {{ report.name }} ({{ report.stock_code }})
 
 - 시장: {{ report.market }}
-- 생성 시각: {{ report.generated_at }}
+- 데이터 기준일: {{ report.data_date or "N/A" }}
 
 {% set m = report.metrics %}
 {% set fin = statement_basis(report.basis) %}

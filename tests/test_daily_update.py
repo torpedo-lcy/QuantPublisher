@@ -24,6 +24,8 @@ from quantpublisher.automation.daily_update import (
     run_daily_update,
 )
 from quantpublisher.database.core import Database
+from quantpublisher.database.models import PriceDaily
+from quantpublisher.database.price_repository import PriceRepository
 from quantpublisher.database.security_repository import SecurityRepository
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -142,6 +144,44 @@ def test_run_daily_update_is_idempotent_when_run_twice(
     with database.connect() as connection:
         stored = SecurityRepository(connection).list_all()
     assert len(stored) == first.securities_collected  # 중복 저장되지 않는다.
+
+
+def test_run_daily_update_does_not_touch_report_files_on_rerun(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    records = _load_fixture("krx_listing_sample.json")
+    _patch_fdr_success(monkeypatch, records)
+    content_dir = tmp_path / "content" / "stocks"
+
+    run_daily_update(content_dir=content_dir, settings=settings)
+    before = {p.name: p.stat().st_mtime_ns for p in content_dir.glob("*.md")}
+    run_daily_update(content_dir=content_dir, settings=settings)
+    after = {p.name: p.stat().st_mtime_ns for p in content_dir.glob("*.md")}
+
+    assert before and before == after
+
+
+def test_run_daily_update_uses_latest_trade_date_as_data_date(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    records = _load_fixture("krx_listing_sample.json")
+    _patch_fdr_success(monkeypatch, records)
+    content_dir = tmp_path / "content" / "stocks"
+    run_daily_update(content_dir=content_dir, settings=settings)
+    stock_code = next(iter(sorted(p.stem for p in content_dir.glob("*.md"))))
+    with Database(settings.db_path).connect() as connection:
+        PriceRepository(connection).upsert_many(
+            [
+                PriceDaily(stock_code, "2026-07-30", 1.0, 2.0, 0.5, 1.5, 10.0),
+                PriceDaily(stock_code, "2026-07-31", 1.0, 2.0, 0.5, 1.5, 10.0),
+            ]
+        )
+
+    run_daily_update(content_dir=content_dir, settings=settings)
+
+    text = (content_dir / f"{stock_code}.md").read_text(encoding="utf-8")
+    assert 'date: "2026-07-31"' in text
+    assert "데이터 기준일: 2026-07-31" in text
 
 
 def test_run_daily_update_uses_settings_db_path_by_default(

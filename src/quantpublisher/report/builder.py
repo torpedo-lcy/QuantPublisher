@@ -7,8 +7,6 @@ quantpublisher.analysis.metrics에서 이미 끝난 값을 StockMetrics로
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from quantpublisher.database.models import Security
 from quantpublisher.report.models import MetricsBasis, StockMetrics, StockReport
 
@@ -16,7 +14,7 @@ from quantpublisher.report.models import MetricsBasis, StockMetrics, StockReport
 def build_stock_report(
     security: Security,
     metrics: StockMetrics,
-    generated_at: str | None = None,
+    data_date: str | None = None,
     basis: MetricsBasis | None = None,
 ) -> StockReport:
     """Security와 StockMetrics로부터 StockReport를 생성한다.
@@ -24,22 +22,17 @@ def build_stock_report(
     Args:
         security: 종목 정보.
         metrics: 이미 계산된 지표 값 모음.
-        generated_at: 리포트 생성 시각 (ISO 8601 문자열). 지정하지
-            않으면 UTC 기준 현재 시각을 사용한다.
+        data_date: 데이터 기준일 (YYYY-MM-DD). 실행 시각을 쓰지 않는 이유는
+            데이터가 그대로인 종목의 파일이 매일 바뀌지 않게 하기 위해서다.
+            지정하지 않으면 None이며 페이지에는 "N/A"로 표시된다.
         basis: 지표의 기준 연도/월과 연결/별도 구분. 지정하지 않으면
             기준 정보가 없는 MetricsBasis()를 사용한다.
     """
-    timestamp = generated_at if generated_at is not None else _now_iso()
     return StockReport(
         stock_code=security.stock_code,
         name=security.name,
         market=security.market,
         metrics=metrics,
-        generated_at=timestamp,
+        data_date=data_date,
         basis=basis if basis is not None else MetricsBasis(),
     )
-
-
-def _now_iso() -> str:
-    """UTC 기준 현재 시각을 ISO 8601 문자열로 반환한다."""
-    return datetime.now(timezone.utc).isoformat()

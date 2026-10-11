@@ -27,6 +27,7 @@ from config.settings import PROJECT_ROOT, Settings, get_settings
 from quantpublisher.crawler.krx_listing import KrxListingFetchError, collect_krx_listing
 from quantpublisher.database.core import Database, init_db
 from quantpublisher.database.models import Security
+from quantpublisher.database.price_repository import PriceRepository
 from quantpublisher.database.security_repository import SecurityRepository
 from quantpublisher.automation.stock_metrics import load_stock_metrics
 from quantpublisher.report import build_stock_report, write_stock_report_markdown
@@ -179,9 +180,15 @@ def _write_reports(
     count = 0
     with_statements = 0
     with_valuation = 0
+    latest_trade_dates = PriceRepository(connection).get_latest_trade_dates()
     for security in securities:
         metrics, basis = load_stock_metrics(connection, security.stock_code)
-        report = build_stock_report(security, metrics, basis=basis)
+        report = build_stock_report(
+            security,
+            metrics,
+            data_date=latest_trade_dates.get(security.stock_code),
+            basis=basis,
+        )
         write_stock_report_markdown(report, content_dir)
         count += 1
         with_statements += basis.statement_year is not None

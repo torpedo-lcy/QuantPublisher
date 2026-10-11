@@ -34,21 +34,20 @@ def test_build_stock_report_carries_metrics_through_unchanged() -> None:
     assert report.metrics.eps == 1000.0
 
 
-def test_build_stock_report_uses_provided_generated_at() -> None:
+def test_build_stock_report_uses_provided_data_date() -> None:
     report = build_stock_report(
         _sample_security(),
         StockMetrics(),
-        generated_at="2026-01-01T00:00:00+00:00",
+        data_date="2026-01-01",
     )
 
-    assert report.generated_at == "2026-01-01T00:00:00+00:00"
+    assert report.data_date == "2026-01-01"
 
 
-def test_build_stock_report_defaults_generated_at_when_not_given() -> None:
+def test_build_stock_report_data_date_is_none_when_not_given() -> None:
     report = build_stock_report(_sample_security(), StockMetrics())
 
-    assert report.generated_at
-    assert "T" in report.generated_at
+    assert report.data_date is None
 
 
 def test_build_stock_report_uses_analysis_metrics_functions() -> None:

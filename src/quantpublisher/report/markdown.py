@@ -110,18 +110,26 @@ def write_stock_report_markdown(report: StockReport, output_dir: Path) -> Path:
     """StockReport를 Markdown 파일로 저장한다.
 
     파일명은 종목코드를 기준으로 한다 (예: 005930.md).
-    output_dir가 존재하지 않으면 생성한다.
+    output_dir가 존재하지 않으면 생성한다. 기존 파일의 내용이 렌더링 결과와
+    같으면 다시 쓰지 않는다 (git 변경과 Hugo 재빌드를 최소화하기 위해).
 
     Args:
         report: 저장할 리포트 모델.
         output_dir: Markdown 파일을 저장할 디렉터리.
 
     Returns:
-        생성된 Markdown 파일의 경로.
+        Markdown 파일의 경로.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     content = render_stock_report_markdown(report)
     file_path = output_dir / f"{report.stock_code}.md"
+    if file_path.exists() and file_path.read_text(encoding="utf-8") == content:
+        logger.debug(
+            "Markdown report unchanged: stock_code=%s path=%s",
+            report.stock_code,
+            file_path,
+        )
+        return file_path
     file_path.write_text(content, encoding="utf-8")
     logger.info(
         "Markdown report written: stock_code=%s path=%s",

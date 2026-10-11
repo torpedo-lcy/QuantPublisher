@@ -118,7 +118,9 @@ def test_pipeline_produces_hugo_content_for_every_stored_security(
         assert f'stock_code: "{security.stock_code}"' in front_matter
         assert f'market: "{security.market}"' in front_matter
         assert "draft: false" in front_matter
-        assert "date:" in front_matter
+        # 가격 데이터가 없는 종목은 데이터 기준일이 없으므로 date를 생략한다.
+        assert "date:" not in front_matter
+        assert "데이터 기준일: N/A" in text
         assert security.name in text
 
 

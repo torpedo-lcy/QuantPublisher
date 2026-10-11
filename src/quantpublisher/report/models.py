@@ -63,7 +63,9 @@ class StockReport:
         name: 종목명.
         market: 시장 구분.
         metrics: 계산된 지표 모음.
-        generated_at: 리포트 생성 시각 (ISO 8601 문자열).
+        data_date: 데이터 기준일 (해당 종목의 최신 거래일, YYYY-MM-DD). 실행 시각이
+            아니라 데이터에서 정해지므로 데이터가 같으면 렌더링 결과도 같다.
+            가격 데이터가 없으면 None.
         basis: 지표의 기준 연도/월과 연결/별도 구분. 지정하지 않으면 모두 None.
     """
 
@@ -71,5 +73,5 @@ class StockReport:
     name: str
     market: str
     metrics: StockMetrics
-    generated_at: str
+    data_date: str | None = None
     basis: MetricsBasis = MetricsBasis()
