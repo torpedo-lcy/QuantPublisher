@@ -13,11 +13,15 @@ from quantpublisher.report.models import (
     CompanyInfo,
     FinancialYear,
     MetricsBasis,
+    PeerGroup,
+    PeerMetricRow,
     StockMetrics,
     StockReport,
 )
 
 __all__ = [
+    "PeerGroup",
+    "PeerMetricRow",
     "CompanyInfo",
     "FinancialYear",
     "MetricsBasis",

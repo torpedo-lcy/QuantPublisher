@@ -108,3 +108,33 @@ draft: false
 {{ line }}
 {% endfor %}
 {% endif %}
+{% if report.peer_market %}
+{% set ind = report.peer_industry %}
+{% set mkt = report.peer_market %}
+
+## 동종 업종·시장 비교
+
+{% if ind %}
+- 업종: {{ ind.description | md_text }}, 종목 {{ ind.size }}개
+{% else %}
+- 업종: 비교할 수 있는 동종 종목이 {{ peer_min_sample }}개 미만이거나 업종 정보가 없어 생략했습니다.
+{% endif %}
+- 시장: {{ mkt.description | md_text }}, 종목 {{ mkt.size }}개
+- 비교 기준: 재무제표 {{ statement_basis(report.basis) }}, 밸류에이션 {{ valuation_basis(report.basis) }}. 같은 기준 시점의 종목끼리만 비교하며, PER·PBR이 0 이하인 종목은 뺍니다.
+- 순위는 값이 큰 순서입니다(1위가 가장 큼). 비교 표본이 {{ peer_min_sample }}개 미만이면 중앙값과 순위를 표시하지 않습니다.
+
+{% if ind %}
+| 지표 | 값 | 업종 중앙값 | 업종 내 순위 | 시장 중앙값 | 시장 내 순위 |
+|---|---|---|---|---|---|
+{% for row in mkt.rows %}
+{% set irow = ind.rows[loop.index0] %}
+| {{ row.label }} | {{ row.value | fmt_metric }} | {{ irow.median | fmt_metric }} | {{ irow | fmt_rank }} | {{ row.median | fmt_metric }} | {{ row | fmt_rank }} |
+{% endfor %}
+{% else %}
+| 지표 | 값 | 시장 중앙값 | 시장 내 순위 |
+|---|---|---|---|
+{% for row in mkt.rows %}
+| {{ row.label }} | {{ row.value | fmt_metric }} | {{ row.median | fmt_metric }} | {{ row | fmt_rank }} |
+{% endfor %}
+{% endif %}
+{% endif %}

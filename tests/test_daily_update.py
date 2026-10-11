@@ -26,7 +26,13 @@ from quantpublisher.automation.daily_update import (
 from quantpublisher.database.core import Database
 from quantpublisher.database.company_profile_repository import CompanyProfileRepository
 from quantpublisher.database.financial_repository import FinancialRepository
-from quantpublisher.database.models import CompanyProfile, FinancialStatement, PriceDaily
+from quantpublisher.database.models import (
+    CompanyProfile,
+    FinancialMetric,
+    FinancialStatement,
+    PriceDaily,
+    Security,
+)
 from quantpublisher.database.price_repository import PriceRepository
 from quantpublisher.database.security_repository import SecurityRepository
 
@@ -266,6 +272,42 @@ def test_run_daily_update_renders_company_section_only_for_collected_profiles(
     assert "## 기업 개요" in with_profile
     assert "반도체를 만듭니다." in with_profile
     assert "기업 개요" not in without_profile
+
+
+def test_run_daily_update_adds_peer_comparison_when_enough_stocks_have_metrics(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    records = _load_fixture("krx_listing_sample.json")
+    _patch_fdr_success(monkeypatch, records)
+    content_dir = tmp_path / "website" / "content" / "stocks"
+    run_daily_update(content_dir=content_dir, settings=settings)
+    codes = [f"90{i:04d}" for i in range(1, 13)]
+    with Database(settings.db_path).connect() as connection:
+        securities = SecurityRepository(connection)
+        financial = FinancialRepository(connection)
+        companies = CompanyProfileRepository(connection)
+        for i, code in enumerate(codes, start=1):
+            securities.upsert(Security(code, f"테스트{i}", "KOSPI"))
+            companies.upsert(CompanyProfile(code, induty_code="26110"))
+            financial.upsert_metrics([FinancialMetric(code, "2026-07", per=float(i), pbr=float(i))])
+            financial.upsert_statements(
+                [FinancialStatement(code, 2025, "11011", equity=100.0, net_income=float(i), is_consolidated=1)]
+            )
+
+    run_daily_update(content_dir=content_dir, settings=settings)
+
+    top = (content_dir / f"{codes[-1]}.md").read_text(encoding="utf-8")
+    assert "## 동종 업종·시장 비교" in top
+    assert "KSIC 261 동종, 종목 12개" in top
+    assert "- 시장: KOSPI, 종목" in top
+    assert "| PER | 12.00 |" in top and "1위 / 12개" in top
+    assert "| ROE (%) | 12.00 |" in top
+
+    # 지표가 하나도 없는 종목(KRX 목록 픽스처)의 페이지에는 비교 섹션이 없다.
+    fixture_codes = [p.stem for p in content_dir.glob("*.md") if p.stem not in codes]
+    assert fixture_codes
+    for code in fixture_codes:
+        assert "동종 업종·시장 비교" not in (content_dir / f"{code}.md").read_text(encoding="utf-8")
 
 
 def test_run_daily_update_uses_settings_db_path_by_default(

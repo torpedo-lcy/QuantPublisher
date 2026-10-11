@@ -30,7 +30,9 @@ from quantpublisher.database.core import Database, init_db
 from quantpublisher.database.models import Security
 from quantpublisher.database.price_repository import PriceRepository
 from quantpublisher.database.security_repository import SecurityRepository
+from quantpublisher.analysis.peer_comparison import compute_peer_comparisons
 from quantpublisher.automation.company_info import build_company_info
+from quantpublisher.automation.peer_info import build_peer_groups, build_peer_inputs
 from quantpublisher.automation.stock_metrics import load_financial_history, load_stock_metrics
 from quantpublisher.report import build_stock_report, write_stock_report_markdown
 from quantpublisher.report.chart_data import (
@@ -205,11 +207,18 @@ def _write_reports(
     with_chart = 0
     with_history = 0
     with_company = 0
+    with_peers = 0
+    securities = list(securities)
     price_repository = PriceRepository(connection)
     company_profiles = CompanyProfileRepository(connection).list_all()
     latest_trade_dates = price_repository.get_latest_trade_dates()
+    # 동종 비교는 전 종목의 지표가 필요하므로 지표를 먼저 모두 계산한다.
+    loaded = {s.stock_code: load_stock_metrics(connection, s.stock_code) for s in securities}
+    peer_comparisons = compute_peer_comparisons(
+        build_peer_inputs(securities, loaded, company_profiles)
+    )
     for security in securities:
-        metrics, basis = load_stock_metrics(connection, security.stock_code)
+        metrics, basis = loaded[security.stock_code]
         recent_prices = price_repository.list_recent_by_code(
             security.stock_code, CHART_MAX_ROWS
         )
@@ -220,6 +229,7 @@ def _write_reports(
         financial_chart_path = write_financial_chart_json(
             security.stock_code, history, chart_dir / "financials"
         )
+        peer_industry, peer_market = build_peer_groups(peer_comparisons.get(security.stock_code))
         report = build_stock_report(
             security,
             metrics,
@@ -229,6 +239,8 @@ def _write_reports(
             financial_history=history,
             has_financial_chart=financial_chart_path is not None,
             company=build_company_info(company_profiles.get(security.stock_code)),
+            peer_industry=peer_industry,
+            peer_market=peer_market,
         )
         write_stock_report_markdown(report, content_dir)
         count += 1
@@ -237,15 +249,17 @@ def _write_reports(
         with_chart += chart_path is not None
         with_history += bool(history)
         with_company += report.company is not None
+        with_peers += report.peer_market is not None
     logger.info(
         "report_metrics_coverage reports=%d with_statements=%d with_valuation=%d "
-        "with_chart=%d with_history=%d with_company=%d",
+        "with_chart=%d with_history=%d with_company=%d with_peers=%d",
         count,
         with_statements,
         with_valuation,
         with_chart,
         with_history,
         with_company,
+        with_peers,
     )
     return count
 

@@ -106,6 +106,42 @@ class CompanyInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class PeerMetricRow:
+    """동종 비교 표의 한 지표 (Task 020).
+
+    Attributes:
+        key: 지표 키 (per, pbr, roe, operating_margin).
+        label: 표에 쓸 이름 (예: "ROE (%)").
+        value: 이 종목의 값. 없으면 None.
+        median: 비교 그룹의 중앙값. 표본이 부족하면 None.
+        rank: 값이 큰 순서의 순위(1이 최대). 비교 대상이 아니거나 표본이 부족하면 None.
+        sample: 비교에 쓰인 종목 수.
+    """
+
+    key: str
+    label: str
+    value: float | None = None
+    median: float | None = None
+    rank: int | None = None
+    sample: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class PeerGroup:
+    """비교 그룹(업종 또는 시장) 하나.
+
+    Attributes:
+        description: 그룹 설명 (예: "전자부품, 컴퓨터, 영상, 음향 및 통신장비 제조업 (KSIC 261)", "KOSPI").
+        size: 그룹에 속한 종목 수.
+        rows: 지표별 비교.
+    """
+
+    description: str
+    size: int
+    rows: tuple[PeerMetricRow, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class StockReport:
     """종목 하나에 대한 리포트 모델.
 
@@ -125,6 +161,8 @@ class StockReport:
         financial_history: 연간 재무 시계열 (연도 오름차순). 없으면 빈 튜플.
         has_financial_chart: 재무 차트 JSON이 생성되어 차트를 넣을 수 있는지 여부.
         company: 기업 개요. 수집되지 않았으면 None.
+        peer_industry: 동종 업종 비교. 업종 그룹을 만들 수 없으면 None.
+        peer_market: 같은 시장 비교. 비교할 값이 없으면 None.
     """
 
     stock_code: str
@@ -137,3 +175,5 @@ class StockReport:
     financial_history: tuple[FinancialYear, ...] = ()
     has_financial_chart: bool = False
     company: CompanyInfo | None = None
+    peer_industry: PeerGroup | None = None
+    peer_market: PeerGroup | None = None

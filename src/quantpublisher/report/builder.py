@@ -12,6 +12,7 @@ from quantpublisher.report.models import (
     CompanyInfo,
     FinancialYear,
     MetricsBasis,
+    PeerGroup,
     StockMetrics,
     StockReport,
 )
@@ -26,6 +27,8 @@ def build_stock_report(
     financial_history: tuple[FinancialYear, ...] = (),
     has_financial_chart: bool = False,
     company: CompanyInfo | None = None,
+    peer_industry: PeerGroup | None = None,
+    peer_market: PeerGroup | None = None,
 ) -> StockReport:
     """Security와 StockMetrics로부터 StockReport를 생성한다.
 
@@ -41,6 +44,8 @@ def build_stock_report(
         financial_history: 연간 재무 시계열 (연도 오름차순).
         has_financial_chart: 재무 차트 JSON이 있어 페이지에 차트를 넣을지 여부.
         company: 기업 개요. 수집되지 않았으면 None.
+        peer_industry: 동종 업종 비교. 없으면 None.
+        peer_market: 같은 시장 비교. 없으면 None.
     """
     return StockReport(
         stock_code=security.stock_code,
@@ -53,4 +58,6 @@ def build_stock_report(
         financial_history=financial_history,
         has_financial_chart=has_financial_chart,
         company=company,
+        peer_industry=peer_industry,
+        peer_market=peer_market,
     )

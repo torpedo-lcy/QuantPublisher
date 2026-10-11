@@ -14,8 +14,9 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
+from quantpublisher.analysis.peer_comparison import MIN_SAMPLE
 from quantpublisher.analysis.performance import Change, ChangeKind, classify_change
-from quantpublisher.report.models import FinancialYear, MetricsBasis, StockReport
+from quantpublisher.report.models import FinancialYear, MetricsBasis, PeerMetricRow, StockReport
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,13 @@ def _performance_lines(report: StockReport) -> list[str]:
     return lines
 
 
+def _format_rank(row: PeerMetricRow | None) -> str:
+    """비교 순위를 "37위 / 112개"로 표시한다. 순위가 없으면 "-"."""
+    if row is None or row.rank is None:
+        return "-"
+    return f"{row.rank}위 / {row.sample}개"
+
+
 def _consolidation_label(is_consolidated: int | None) -> str:
     """is_consolidated 값을 "연결"/"별도" 표시로 변환한다. 모르면 빈 문자열."""
     if is_consolidated == 1:
@@ -211,6 +219,7 @@ def _build_environment() -> Environment:
     env.filters["fmt_metric"] = _format_metric
     env.filters["basis_cell"] = _basis_cell
     env.filters["fmt_won"] = _format_won
+    env.filters["fmt_rank"] = _format_rank
     env.filters["md_text"] = _md_text
     env.filters["md_code"] = _md_code
     env.filters["consolidation_label"] = _consolidation_label
@@ -218,6 +227,7 @@ def _build_environment() -> Environment:
     env.globals["growth_basis"] = _growth_basis
     env.globals["valuation_basis"] = _valuation_basis
     env.globals["performance_lines"] = _performance_lines
+    env.globals["peer_min_sample"] = MIN_SAMPLE
     return env
 
 
