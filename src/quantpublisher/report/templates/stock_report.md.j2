@@ -16,7 +16,7 @@ draft: false
 
 ## 가격 차트
 
-{{ '{{< pricechart code="' ~ report.stock_code ~ '" >}}' }}
+{{ '{{< pricechart code="' ~ report.stock_code ~ '"' ~ (' market="' ~ report.market ~ '"' if report.market in index_markets else '') ~ ' >}}' }}
 {% endif %}
 
 {% set m = report.metrics %}

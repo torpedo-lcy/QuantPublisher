@@ -57,7 +57,7 @@
             if (!r.ok) throw new Error("HTTP " + r.status);
             return r.json();
           })
-          .then(function (data) { render(el, data); })
+          .then(function (data) { return render(el, data); })
           .catch(function (err) {
             statusEl.textContent = "차트 데이터를 불러오지 못했습니다 (" + err.message + ").";
           });

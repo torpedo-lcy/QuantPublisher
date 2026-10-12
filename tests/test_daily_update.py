@@ -214,7 +214,7 @@ def test_run_daily_update_writes_price_chart_json_and_shortcode(
     assert not (chart_dir / f"{without_prices}.json").exists()
     with_text = (content_dir / f"{with_prices}.md").read_text(encoding="utf-8")
     without_text = (content_dir / f"{without_prices}.md").read_text(encoding="utf-8")
-    assert f'{{{{< pricechart code="{with_prices}" >}}}}' in with_text
+    assert f'{{{{< pricechart code="{with_prices}" market="KOSPI" >}}}}' in with_text
     assert "pricechart" not in without_text
 
 

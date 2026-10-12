@@ -16,6 +16,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from quantpublisher.analysis.peer_comparison import MIN_SAMPLE
 from quantpublisher.analysis.performance import Change, ChangeKind, classify_change
+from quantpublisher.report.chart_data import INDEX_SYMBOLS
 from quantpublisher.report.models import FinancialYear, MetricsBasis, PeerMetricRow, StockReport
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,7 @@ def _build_environment() -> Environment:
     env.globals["valuation_basis"] = _valuation_basis
     env.globals["performance_lines"] = _performance_lines
     env.globals["peer_min_sample"] = MIN_SAMPLE
+    env.globals["index_markets"] = tuple(INDEX_SYMBOLS)
     return env
 
 

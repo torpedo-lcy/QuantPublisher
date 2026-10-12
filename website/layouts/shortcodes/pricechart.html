@@ -1,7 +1,8 @@
 {{- $code := .Get "code" | default (.Get 0) -}}
 {{- partial "chart-base-assets.html" .Page -}}
 <script src="{{ "js/pricechart.js" | relURL }}" defer></script>
-<div class="price-chart" data-src="{{ printf "charts/prices/%s.json" $code | relURL }}">
+{{- $market := .Get "market" -}}
+<div class="price-chart" data-src="{{ printf "charts/prices/%s.json" $code | relURL }}"{{ with $market }} data-index-name="{{ . }}" data-index-src="{{ printf "charts/index/%s.json" . | relURL }}"{{ end }}>
   <div class="chart-legend" aria-live="polite"></div>
   <div class="price-chart-price"></div>
   <div class="price-chart-volume"></div>

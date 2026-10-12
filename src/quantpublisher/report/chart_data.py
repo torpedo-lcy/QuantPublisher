@@ -14,6 +14,10 @@ t는 1970-01-01부터의 일수다 (JS에서 86400을 곱해 초 단위로 쓴�
 재무 JSON (website/static/charts/financials/<종목코드>.json, Task 018):
     {"code": "005930", "y": [연도...], "s": [매출액...], "o": [영업이익...], "n": [순이익...]}
 금액은 억원 단위 정수이고 값이 없으면 null이다.
+
+지수 JSON (website/static/charts/index/<KOSPI|KOSDAQ>.json, Task 023):
+    {"code": "KOSPI", "t": [일 단위 epoch...], "c": [종가...]}
+시장당 하나를 모든 종목 페이지가 공유한다. 가격 JSON과 같은 t 기준이라 JS가 날짜로 맞춘다.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ import json
 import logging
 from datetime import date
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from quantpublisher.database.models import PriceDaily
 from quantpublisher.report.models import FinancialYear
@@ -36,6 +40,9 @@ CHART_MAX_ROWS = 370
 
 # 재무 차트는 점이 한 개면 추이가 아니므로 이 연수 이상일 때만 만든다.
 FINANCIAL_CHART_MIN_YEARS = 2
+
+# 지수선을 그리는 시장 -> FinanceDataReader 심볼. 종목 페이지의 market 값과 같은 이름을 쓴다.
+INDEX_SYMBOLS: Mapping[str, str] = {"KOSPI": "KS11", "KOSDAQ": "KQ11"}
 
 _EPOCH = date(1970, 1, 1)
 _WON_PER_EOK = 100_000_000  # 1억원
@@ -98,6 +105,30 @@ def write_financial_chart_json(
 ) -> Path | None:
     """재무 차트 JSON을 저장한다. 데이터가 부족하면 만들지 않고 None을 반환한다."""
     return _write_chart_json(stock_code, build_financial_chart_data(stock_code, history), output_dir)
+
+
+def build_index_chart_data(
+    index_code: str, closes: Sequence[tuple[str, float]]
+) -> dict[str, object] | None:
+    """(거래일, 종가) 목록(오름차순)으로 지수 차트 데이터를 만든다. 최근 CHART_MAX_ROWS개만 담는다.
+
+    비어 있으면 None.
+    """
+    rows = list(closes)[-CHART_MAX_ROWS:]
+    if not rows:
+        return None
+    return {
+        "code": index_code,
+        "t": [(date.fromisoformat(day) - _EPOCH).days for day, _ in rows],
+        "c": [_compact_number(close) for _, close in rows],
+    }
+
+
+def write_index_chart_json(
+    index_code: str, closes: Sequence[tuple[str, float]], output_dir: Path
+) -> Path | None:
+    """지수 차트 JSON을 저장한다. 데이터가 없으면 파일을 만들지 않고 None을 반환한다."""
+    return _write_chart_json(index_code, build_index_chart_data(index_code, closes), output_dir)
 
 
 def _write_chart_json(

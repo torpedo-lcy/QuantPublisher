@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Iterable
 
 from config.settings import PROJECT_ROOT, Settings, get_settings
+from quantpublisher.crawler.index_chart import update_index_charts
 from quantpublisher.crawler.krx_listing import KrxListingFetchError, collect_krx_listing
 from quantpublisher.database.company_profile_repository import CompanyProfileRepository
 from quantpublisher.database.core import Database, init_db
@@ -298,6 +299,9 @@ def main() -> int:
     except DailyUpdateError as exc:
         logger.error("daily_update_aborted reason=%s", exc)
         return 1
+
+    # 지수선은 부가 정보라 수집에 실패해도 파이프라인 결과에 영향을 주지 않는다.
+    update_index_charts()
 
     logger.info(
         "daily_update_summary securities_collected=%d reports_generated=%d "
