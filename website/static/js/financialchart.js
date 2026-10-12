@@ -27,33 +27,47 @@
     function showLegend(i) { show(i, data.y[i] + "년"); }
 
     var axisBase = { stroke: fg, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid, width: 1 } };
-    var opts = {
-      width: Math.max(el.clientWidth, 280),
-      height: 260,
-      legend: { show: false },
-      // 연도는 정수 눈금만 쓴다 (시간 축이 아님).
-      scales: { x: { time: false } },
-      axes: [
-        Object.assign({}, axisBase, {
-          splits: function () { return data.y; },
-          values: function (u, vals) { return vals.map(String); },
-        }),
-        Object.assign({}, axisBase, { size: 70, values: function (u, vals) { return vals.map(fmtEok); } }),
-      ],
-      series: [{}].concat(defs.map(function (d) {
-        return { label: d.label, stroke: d.color, width: 2, points: { show: true, size: 6, fill: d.color } };
-      })),
-      hooks: {
-        // 커서가 차트 밖에 있으면 가장 최근 연도를 보여준다.
-        setCursor: [function (u) {
-          showLegend(u.cursor.idx == null ? data.y.length - 1 : u.cursor.idx);
-        }],
-      },
-    };
+    var last = data.y.length - 1;
+    // 항목마다 단위가 크게 달라 패널을 나누고, 연도 축과 커서를 맞춰 위아래로 쌓는다.
+    var syncKey = uPlot.sync("financial-" + data.code);
+    var panelHeight = 150;
+    var xAxisHeight = 40;
+
+    defs.forEach(function (d, k) {
+      var isLast = k === defs.length - 1;
+      var panelEl = document.createElement("div");
+      panelEl.className = "financial-chart-panel";
+      plotEl.appendChild(panelEl);
+      var opts = {
+        width: Math.max(el.clientWidth, 280),
+        height: panelHeight + (isLast ? xAxisHeight : 0),
+        legend: { show: false },
+        cursor: { sync: { key: syncKey.key, setSeries: false } },
+        // 연도는 정수 눈금만 쓴다 (시간 축이 아님). 양끝에 반 칸씩 여백을 두어 끝 연도 라벨이
+        // 플롯 밖으로 나가지 않게 한다 (나가면 x축이 있는 마지막 패널만 폭이 달라진다).
+        scales: { x: { time: false, range: [data.y[0] - 0.5, data.y[last] + 0.5] } },
+        axes: [
+          Object.assign({}, axisBase, {
+            show: isLast,
+            splits: function () { return data.y; },
+            values: function (u, vals) { return vals.map(String); },
+          }),
+          Object.assign({}, axisBase, { size: 70, values: function (u, vals) { return vals.map(fmtEok); } }),
+        ],
+        series: [
+          {},
+          { label: d.label, stroke: d.color, width: 2, points: { show: true, size: 6, fill: d.color } },
+        ],
+        hooks: {
+          // 커서가 차트 밖에 있으면 가장 최근 연도를 보여준다.
+          setCursor: [function (u) { showLegend(u.cursor.idx == null ? last : u.cursor.idx); }],
+        },
+      };
+      new uPlot(opts, [data.y, d.values], panelEl);
+    });
 
     statusEl.remove();
-    new uPlot(opts, [data.y].concat(defs.map(function (d) { return d.values; })), plotEl);
-    showLegend(data.y.length - 1);
+    showLegend(last);
   }
 
   QPChart.mount(".financial-chart", render);

@@ -183,3 +183,7 @@ th, td {
     padding: 0.8rem 1rem;
   }
 }
+
+.financial-chart-panel + .financial-chart-panel {
+  margin-top: 0.25rem;
+}
