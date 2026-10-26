@@ -1,22 +1,22 @@
-"""외부 Mac mini의 가격/종목 마스터 데이터를 가져오는 진입점 (Task 013).
+"""외부 Mac mini의 quant.db에서 가격/종목 마스터/재무 데이터를 가져오는 진입점 (Task 013).
 
-흐름:
-    1. 가격: 외부 stock-price/<종목코드>.db의 daily -> 파싱/검증 -> prices_daily upsert
-    2. corp_code: 외부 quant.db(.backup 스냅샷)의 stock_master -> securities.corp_code
-    3. 재무/밸류에이션 (Task 014): 같은 quant.db 스냅샷의 financial_data(연간) ->
-       financial_statements, market_data -> financial_metrics
+외부 quant.db(가격/종목/재무 통합 DB)를 .backup 스냅샷으로 한 번 복사한 뒤, 그 파일로:
+    1. 가격: v_adj_price(수정주가) -> 파싱/검증 -> prices_daily upsert
+    2. corp_code: stock -> securities.corp_code
+    3. 재무/밸류에이션 (Task 014): financial_q(결산월 분기) -> financial_statements,
+       quant_latest -> financial_metrics(최신 월)
 
 외부 접속이 실패하면 DB에 아무것도 쓰기 전에 예외로 끝난다 (기존 prices_daily 불변).
-종목 하나가 원격에서 추출 실패해도 나머지는 계속 처리하고, 실패 종목 수를 결과에
-포함한다.
 
 실행:
-    uv run python -m quantpublisher.crawler.market_data_import
-종료 코드: 0 성공 / 1 중단(접속 실패 등) / 2 일부 종목 실패
+    uv run python -m quantpublisher.crawler.market_data_import [--full-prices]
+    --full-prices: 가격을 증분이 아니라 원천 전체 기간으로 다시 가져와 덮어쓴다.
+종료 코드: 0 성공 / 1 중단(접속 실패 등)
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 import shutil
 import sqlite3
@@ -28,7 +28,7 @@ from pathlib import Path
 from config.settings import Settings, get_settings
 from quantpublisher.crawler.corp_code_import import (
     CorpCodeImportResult,
-    StockMasterReadError,
+    StockTableReadError,
     import_corp_codes,
 )
 from quantpublisher.crawler.external_mac import (
@@ -41,7 +41,15 @@ from quantpublisher.crawler.financial_import import (
     FinancialImportResult,
     import_financial_data,
 )
-from quantpublisher.crawler.price_import import PriceParseStats, parse_price_lines, save_prices
+from quantpublisher.crawler.price_import import (
+    PriceDataReadError,
+    PriceParseStats,
+    find_readjusted_codes,
+    parse_price_rows,
+    read_price_rows,
+    read_source_first_dates,
+    save_prices,
+)
 from quantpublisher.database.core import Database, init_db
 from quantpublisher.database.price_repository import PriceRepository
 from quantpublisher.database.security_repository import SecurityRepository
@@ -61,26 +69,26 @@ class PriceImportResult:
     """가격 가져오기 결과.
 
     Attributes:
-        stocks_requested: 원격에 가격 DB가 있어 추출을 요청한 종목 수.
-        stocks_failed: 원격 추출이 실패한 종목 수.
-        failed_codes: 실패한 종목코드 (정렬).
-        stocks_missing_remote: securities에는 있으나 원격 가격 DB가 없는 종목 수.
-        remote_files_not_in_securities: 원격에는 있으나 securities에 없어 가져오지 않은 파일 수.
-        rows_received: 받은 PSV 행 수.
+        stocks_requested: 원천 daily_price에 일봉이 있어 읽기를 요청한 종목 수.
+        stocks_missing_source: securities에는 있으나 원천 daily_price에 없는 종목 수.
+        source_codes_not_in_securities: 원천에는 있으나 securities에 없어 가져오지 않은 종목 수.
+        rows_received: 원천에서 읽은 행 수.
         rows_saved: prices_daily에 upsert한 행 수.
         rows_skipped_unknown_code: securities에 없는 종목코드 행 (건너뜀).
         rows_skipped_invalid: 형식/범위 검증 실패 행 (건너뜀).
+        full_refresh: 증분이 아니라 전체 기간을 다시 가져왔는지 여부.
+        stocks_readjusted: 증분 모드에서 수정주가가 재보정돼 전체를 다시 가져온 종목 수.
     """
 
     stocks_requested: int
-    stocks_failed: int
-    failed_codes: tuple[str, ...]
-    stocks_missing_remote: int
-    remote_files_not_in_securities: int
+    stocks_missing_source: int
+    source_codes_not_in_securities: int
     rows_received: int
     rows_saved: int
     rows_skipped_unknown_code: int
     rows_skipped_invalid: int
+    full_refresh: bool = False
+    stocks_readjusted: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,16 +102,19 @@ class MarketDataImportResult:
 
 
 def import_prices(
-    connection: sqlite3.Connection, source: ExternalDataSource, staging_dir: Path
+    connection: sqlite3.Connection, quant_db_path: Path, full_refresh: bool = False
 ) -> PriceImportResult:
-    """외부 가격 DB를 prices_daily로 가져온다 (최초 백필 + 이후 증분).
+    """quant.db 스냅샷의 수정주가(v_adj_price)를 prices_daily로 가져온다.
 
-    종목별 증분 기준은 prices_daily에 저장된 MAX(trade_date)이고, 저장된 행이 없는
-    종목은 전체를 가져온다. 외부 접근(예외 발생 가능)은 DB 쓰기보다 먼저 끝난다.
+    기본은 증분이다. 종목별 기준은 prices_daily에 저장된 MAX(trade_date)이고, 저장된
+    행이 없는 종목은 전체를 가져온다. 분할/병합/감자로 과거 수정주가가 바뀐 종목
+    (원천 첫 거래일의 저장된 종가가 원천과 다름)은 증분이 아니라 전체를 다시 가져온다.
+    full_refresh면 모든 종목을 전체 기간으로 다시 가져와 같은 날짜의 값을 원천 값으로
+    덮어쓴다 (원천을 바꿨을 때 한 번 실행).
 
     Raises:
         MarketDataImportError: securities가 비어 있는 경우.
-        ExternalSourceError: 외부 Mac 접속/명령/전송 실패.
+        PriceDataReadError: 스냅샷의 daily_price를 읽을 수 없는 경우.
     """
     known_codes = {s.stock_code for s in SecurityRepository(connection).list_all()}
     if not known_codes:
@@ -112,40 +123,57 @@ def import_prices(
             "(python -m quantpublisher.automation.daily_update)."
         )
 
-    remote_codes = set(source.list_price_stock_codes())
-    target_codes = sorted(known_codes & remote_codes)
-    missing_remote = sorted(known_codes - remote_codes)
-    not_in_securities = sorted(remote_codes - known_codes)
-    if missing_remote:
+    source_first_dates = read_source_first_dates(quant_db_path)
+    source_codes = set(source_first_dates)
+    target_codes = sorted(known_codes & source_codes)
+    missing_source = sorted(known_codes - source_codes)
+    not_in_securities = sorted(source_codes - known_codes)
+    if missing_source:
         logger.warning(
-            "price_remote_db_missing count=%d sample=%s",
-            len(missing_remote),
-            missing_remote[:_LOG_SAMPLE_SIZE],
+            "price_source_missing count=%d sample=%s",
+            len(missing_source),
+            missing_source[:_LOG_SAMPLE_SIZE],
         )
     if not_in_securities:
         logger.warning(
-            "price_remote_files_not_in_securities skipped count=%d sample=%s",
+            "price_source_codes_not_in_securities skipped count=%d sample=%s",
             len(not_in_securities),
             not_in_securities[:_LOG_SAMPLE_SIZE],
         )
 
-    latest_dates = PriceRepository(connection).get_latest_trade_dates()
-    since_by_code = {code: latest_dates.get(code) for code in target_codes}
-
-    dest_dir = _prepare_staging_dir(staging_dir / "prices")
-    export = source.export_prices(since_by_code, dest_dir)
+    readjusted: set[str] = set()
+    if full_refresh:
+        since_by_code: dict[str, str | None] = {code: None for code in target_codes}
+    else:
+        repository = PriceRepository(connection)
+        latest_dates = repository.get_latest_trade_dates()
+        stored_closes = repository.get_closes_on(
+            {code: source_first_dates[code] for code in target_codes}
+        )
+        readjusted = find_readjusted_codes(quant_db_path, stored_closes)
+        if readjusted:
+            logger.info(
+                "price_readjusted_full_refresh count=%d sample=%s",
+                len(readjusted),
+                sorted(readjusted)[:_LOG_SAMPLE_SIZE],
+            )
+        since_by_code = {
+            code: None if code in readjusted else latest_dates.get(code)
+            for code in target_codes
+        }
 
     stats = PriceParseStats()
-    with export.psv_path.open("r", encoding="utf-8") as psv_file:
-        saved = save_prices(connection, parse_price_lines(psv_file, known_codes, stats))
+    saved = save_prices(
+        connection,
+        parse_price_rows(read_price_rows(quant_db_path, since_by_code), known_codes, stats),
+    )
 
-    for code, message in sorted(export.failures.items()):
-        logger.error("price_export_failed stock_code=%s reason=%s", code, message)
     logger.info(
-        "prices_imported requested=%d failed=%d received=%d saved=%d "
+        "prices_imported requested=%d full_refresh=%s readjusted=%d received=%d saved=%d "
         "skipped_unknown_code=%d skipped_invalid=%d",
         len(target_codes),
-        len(export.failures),
+        full_refresh,
+        len(readjusted),
         stats.received,
         saved,
         stats.skipped_unknown_code,
@@ -153,29 +181,32 @@ def import_prices(
     )
     return PriceImportResult(
         stocks_requested=len(target_codes),
-        stocks_failed=len(export.failures),
-        failed_codes=tuple(sorted(export.failures)),
-        stocks_missing_remote=len(missing_remote),
-        remote_files_not_in_securities=len(not_in_securities),
+        stocks_missing_source=len(missing_source),
+        source_codes_not_in_securities=len(not_in_securities),
         rows_received=stats.received,
         rows_saved=saved,
         rows_skipped_unknown_code=stats.skipped_unknown_code,
         rows_skipped_invalid=stats.skipped_invalid,
+        full_refresh=full_refresh,
+        stocks_readjusted=len(readjusted),
     )
 
 
 def collect_market_data(
-    connection: sqlite3.Connection, source: ExternalDataSource, staging_dir: Path
+    connection: sqlite3.Connection,
+    source: ExternalDataSource,
+    staging_dir: Path,
+    full_refresh_prices: bool = False,
 ) -> MarketDataImportResult:
-    """가격을 가져온 뒤, quant.db 스냅샷 하나로 corp_code와 재무/밸류에이션을 반영한다.
+    """quant.db 스냅샷을 한 번 복사한 뒤 가격, corp_code, 재무/밸류에이션을 반영한다.
 
-    corp_code를 먼저 반영하고 재무/밸류에이션을 가져온다. 재무 데이터는 securities에
-    있는 종목만 저장하므로 순서는 중요하지 않지만, 스냅샷은 한 번만 복사한다.
+    외부 접근(스냅샷 복사)은 DB 쓰기보다 먼저 끝난다. 재무 데이터는 securities에
+    있는 종목만 저장하므로 corp_code와의 순서는 중요하지 않다.
     """
     started_at = time.monotonic()
-    prices = import_prices(connection, source, staging_dir)
     quant_dir = _prepare_staging_dir(staging_dir / "quant")
     quant_db_path = source.fetch_quant_db(quant_dir)
+    prices = import_prices(connection, quant_db_path, full_refresh=full_refresh_prices)
     corp_codes = import_corp_codes(connection, quant_db_path)
     financial = import_financial_data(connection, quant_db_path)
     return MarketDataImportResult(
@@ -207,8 +238,15 @@ def _configure_logging(settings: Settings) -> None:
     )
 
 
-def main() -> int:
-    """CLI 진입점. 종료 코드: 0 성공 / 1 중단 / 2 일부 종목 실패."""
+def main(argv: list[str] | None = None) -> int:
+    """CLI 진입점. 종료 코드: 0 성공 / 1 중단."""
+    parser = argparse.ArgumentParser(description="외부 quant.db에서 가격/재무 데이터를 가져온다.")
+    parser.add_argument(
+        "--full-prices",
+        action="store_true",
+        help="가격을 증분이 아니라 원천 전체 기간으로 다시 가져와 덮어쓴다.",
+    )
+    args = parser.parse_args(argv)
     settings = get_settings()
     _configure_logging(settings)
     if settings.external_mac is None:
@@ -223,10 +261,13 @@ def main() -> int:
     staging_dir = settings.data_dir / _STAGING_RELATIVE_DIR
     try:
         with Database(settings.db_path).connect() as connection:
-            result = collect_market_data(connection, source, staging_dir)
+            result = collect_market_data(
+                connection, source, staging_dir, full_refresh_prices=args.full_prices
+            )
     except (
         ExternalSourceError,
-        StockMasterReadError,
+        PriceDataReadError,
+        StockTableReadError,
         FinancialDataReadError,
         MarketDataImportError,
     ) as exc:
@@ -234,10 +275,10 @@ def main() -> int:
         return 1
 
     logger.info(
-        "market_data_import_summary stocks_requested=%d stocks_failed=%d rows_saved=%d "
+        "market_data_import_summary stocks_requested=%d full_refresh=%s rows_saved=%d "
         "corp_codes_updated=%d elapsed_seconds=%.2f",
         result.prices.stocks_requested,
-        result.prices.stocks_failed,
+        result.prices.full_refresh,
         result.prices.rows_saved,
         result.corp_codes.updated,
         result.elapsed_seconds,
@@ -252,9 +293,6 @@ def main() -> int:
             result.financial.metrics_saved,
             result.financial.per_pbr_nullified,
         )
-    if result.prices.stocks_failed:
-        logger.error("market_data_import_partial_failure failed_codes=%s", result.prices.failed_codes)
-        return 2
     return 0
 
 

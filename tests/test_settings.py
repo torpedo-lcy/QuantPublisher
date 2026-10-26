@@ -13,7 +13,6 @@ from config.settings import (
 _EXTERNAL_ENV_VARS = (
     "QP_EXTERNAL_HOST",
     "QP_EXTERNAL_USER",
-    "QP_EXTERNAL_STOCK_PRICE_DIR",
     "QP_EXTERNAL_QUANT_DB_PATH",
 )
 
@@ -104,22 +103,19 @@ def test_get_settings_reads_external_mac_environment_variables(monkeypatch):
     monkeypatch.setattr("config.settings._load_dotenv", lambda path: None)
     monkeypatch.setenv("QP_EXTERNAL_HOST", "mini2.local")
     monkeypatch.setenv("QP_EXTERNAL_USER", "quant")
-    monkeypatch.setenv("QP_EXTERNAL_STOCK_PRICE_DIR", "/Users/quant/stock-price")
     monkeypatch.setenv("QP_EXTERNAL_QUANT_DB_PATH", "/Users/quant/quant.db")
 
     assert get_settings().external_mac == ExternalMacSettings(
         host="mini2.local",
         user="quant",
-        stock_price_dir="/Users/quant/stock-price",
         quant_db_path="/Users/quant/quant.db",
     )
 
 
-def test_get_settings_raises_when_external_host_is_set_without_remote_paths(monkeypatch):
+def test_get_settings_raises_when_external_host_is_set_without_quant_db_path(monkeypatch):
     monkeypatch.setattr("config.settings._load_dotenv", lambda path: None)
     monkeypatch.setenv("QP_EXTERNAL_HOST", "mini2.local")
     monkeypatch.delenv("QP_EXTERNAL_USER", raising=False)
-    monkeypatch.delenv("QP_EXTERNAL_STOCK_PRICE_DIR", raising=False)
     monkeypatch.delenv("QP_EXTERNAL_QUANT_DB_PATH", raising=False)
 
     with pytest.raises(ValueError):

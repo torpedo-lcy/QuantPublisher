@@ -6,11 +6,10 @@ import logging
 import shutil
 import sqlite3
 from pathlib import Path
-from typing import Iterator, Mapping
+from typing import Iterator
 
 import pytest
 
-from quantpublisher.crawler.external_mac import PriceExport
 from quantpublisher.crawler.financial_import import (
     FinancialDataReadError,
     MetricParseStats,
@@ -27,44 +26,78 @@ from quantpublisher.database.security_repository import SecurityRepository
 
 CURRENT_YEAR = 2026
 
-# 원천 quant.db와 같은 열 구성 (eps, 현금흐름, YoY 포함 - 가져오지 않는지 확인하려고)
+# 원천 quant.db와 같은 열 구성 (eps, bps, cfo_ytd 포함 - 가져오지 않는지 확인하려고).
+# quant_latest가 마지막이어야 한다 (테이블 누락 테스트가 그 앞에서 자른다).
 _SOURCE_SCHEMA = """
-CREATE TABLE financial_data (
-    stock_code TEXT NOT NULL, year INTEGER NOT NULL, report_type TEXT NOT NULL,
-    assets REAL, liabilities REAL, equity REAL, current_assets REAL, current_liab REAL,
-    sales REAL, gross_profit REAL, operating_income REAL, net_income REAL, eps REAL,
-    cf_operating REAL, cf_investing REAL, cf_financing REAL,
-    sales_yoy REAL, op_income_yoy REAL, net_income_yoy REAL,
-    is_consolidated INTEGER DEFAULT 1, created_at TEXT,
-    PRIMARY KEY (stock_code, year, report_type)
+CREATE TABLE stock (
+    code TEXT PRIMARY KEY, name TEXT NOT NULL, asset_type TEXT NOT NULL, market TEXT,
+    setl_month INTEGER, corp_code TEXT, is_active INTEGER NOT NULL DEFAULT 1
 );
-CREATE TABLE market_data (
-    stock_code TEXT NOT NULL, year_month TEXT NOT NULL, trade_date TEXT,
-    close_price REAL, market_cap REAL, shares_out REAL,
-    per REAL, pbr REAL, psr REAL, pcr REAL,
-    PRIMARY KEY (stock_code, year_month)
+CREATE TABLE daily_price (
+    code TEXT NOT NULL, date INTEGER NOT NULL,
+    open INTEGER, high INTEGER, low INTEGER, close INTEGER NOT NULL,
+    volume INTEGER, value INTEGER,
+    PRIMARY KEY (code, date)
+) WITHOUT ROWID;
+CREATE TABLE share_count (
+    code TEXT NOT NULL, asof_date INTEGER NOT NULL, shares INTEGER NOT NULL, src TEXT NOT NULL,
+    PRIMARY KEY (code, asof_date)
+);
+CREATE TABLE financial_q (
+    code TEXT NOT NULL, period INTEGER NOT NULL,
+    assets INTEGER, current_assets INTEGER, liabilities INTEGER, current_liab INTEGER,
+    equity INTEGER,
+    revenue_ytd INTEGER, gross_profit_ytd INTEGER, op_income_ytd INTEGER,
+    net_income_ytd INTEGER, cfo_ytd INTEGER,
+    eps REAL, bps REAL,
+    available_date INTEGER NOT NULL, fetched_at INTEGER,
+    PRIMARY KEY (code, period)
+);
+CREATE TABLE corp_event (
+    code TEXT NOT NULL, date INTEGER NOT NULL, kind TEXT NOT NULL, ratio REAL, note TEXT,
+    PRIMARY KEY (code, date, kind)
+);
+CREATE VIEW v_adj_price AS SELECT code, date, open, high, low, close, volume, value, adj_factor,
+    open * adj_factor AS adj_open, high * adj_factor AS adj_high, low * adj_factor AS adj_low,
+    close * adj_factor AS adj_close
+FROM (SELECT p.*, COALESCE((SELECT exp(sum(ln(e.ratio))) FROM corp_event e
+    WHERE e.code = p.code AND e.date > p.date AND e.ratio > 0
+      AND e.kind IN ('REV_SPLIT', 'BONUS', 'CAP_DECREASE')), 1.0) AS adj_factor
+FROM daily_price p);
+CREATE TABLE quant_latest (
+    code TEXT PRIMARY KEY, name TEXT, market_cap INTEGER,
+    per REAL, pbr REAL, psr REAL, pcr REAL, roe REAL,
+    asof_date INTEGER, fin_period INTEGER
 );
 """
 
+# 테스트에서 쓰는 이전 열 이름 -> financial_q 열 이름
+_STATEMENT_ALIASES = {
+    "sales": "revenue_ytd",
+    "gross_profit": "gross_profit_ytd",
+    "operating_income": "op_income_ytd",
+    "net_income": "net_income_ytd",
+}
 
-def _statement(code: str, year: int = 2025, report_type: str = "11011", **overrides: object) -> dict:
+
+def _statement(code: str, year: int = 2025, month: int = 12, **overrides: object) -> dict:
+    """financial_q 한 행. 기본은 12월 결산 종목의 연간(12월 분기) 누적 값."""
     row = {
-        "stock_code": code, "year": year, "report_type": report_type,
+        "code": code, "period": year * 100 + month,
         "assets": 1000.0, "liabilities": 400.0, "equity": 600.0,
         "current_assets": 500.0, "current_liab": 300.0,
-        "sales": 800.0, "gross_profit": 200.0, "operating_income": 100.0,
-        "net_income": 60.0, "eps": 0.0,
-        "cf_operating": 11.0, "cf_investing": -5.0, "cf_financing": -2.0,
-        "sales_yoy": 3.0, "op_income_yoy": 4.0, "net_income_yoy": 5.0,
-        "is_consolidated": 1, "created_at": "2026-03-26 00:00:00",
+        "revenue_ytd": 800.0, "gross_profit_ytd": 200.0, "op_income_ytd": 100.0,
+        "net_income_ytd": 60.0, "cfo_ytd": 11.0, "eps": 0.0, "bps": 0.0,
+        "available_date": year * 10000 + 331,
     }
-    row.update(overrides)
+    row.update({_STATEMENT_ALIASES.get(key, key): value for key, value in overrides.items()})
     return row
 
 
 def _metric(code: str, year_month: str = "2026-07", **overrides: object) -> dict:
+    """quant_latest 한 행 + 그날 종가(daily_price)와 주식수(share_count)."""
     row = {
-        "stock_code": code, "year_month": year_month, "trade_date": f"{year_month}-28",
+        "code": code, "asof_date": int(year_month.replace("-", "") + "28"),
         "close_price": 70000.0, "market_cap": 4.2e14, "shares_out": 6.0e9,
         "per": 12.5, "pbr": 1.4, "psr": 1.1, "pcr": 5.0,
     }
@@ -72,18 +105,48 @@ def _metric(code: str, year_month: str = "2026-07", **overrides: object) -> dict
     return row
 
 
-def _make_quant_db(path: Path, statements: list[dict], metrics: list[dict]) -> Path:
+def _insert(connection: sqlite3.Connection, table: str, row: dict) -> None:
+    columns = ", ".join(row)
+    marks = ", ".join(f":{name}" for name in row)
+    connection.execute(f"INSERT INTO {table} ({columns}) VALUES ({marks})", row)
+
+
+def _make_quant_db(
+    path: Path,
+    statements: list[dict],
+    metrics: list[dict],
+    setl_months: dict[str, int | None] | None = None,
+    corp_codes: dict[str, str] | None = None,
+) -> Path:
+    setl_months = setl_months or {}
+    corp_codes = corp_codes or {}
+    codes = {row["code"] for row in statements + metrics} | set(setl_months) | set(corp_codes)
     connection = sqlite3.connect(path)
     try:
         connection.executescript(_SOURCE_SCHEMA)
+        for code in sorted(codes):
+            _insert(connection, "stock", {
+                "code": code, "name": code, "asset_type": "STOCK", "market": "STK",
+                "setl_month": setl_months.get(code, 12), "corp_code": corp_codes.get(code),
+            })
         for row in statements:
-            columns = ", ".join(row)
-            marks = ", ".join(f":{name}" for name in row)
-            connection.execute(f"INSERT INTO financial_data ({columns}) VALUES ({marks})", row)
+            _insert(connection, "financial_q", row)
         for row in metrics:
-            columns = ", ".join(row)
-            marks = ", ".join(f":{name}" for name in row)
-            connection.execute(f"INSERT INTO market_data ({columns}) VALUES ({marks})", row)
+            quant = dict(row)
+            close_price = quant.pop("close_price")
+            shares_out = quant.pop("shares_out")
+            _insert(connection, "quant_latest", quant)
+            if close_price is not None:
+                _insert(connection, "daily_price", {
+                    "code": row["code"], "date": row["asof_date"], "open": close_price,
+                    "high": close_price, "low": close_price, "close": close_price,
+                    "volume": 1000,
+                })
+            if shares_out is not None:
+                _insert(connection, "share_count", {
+                    "code": row["code"], "asof_date": row["asof_date"] - 5,
+                    "shares": shares_out, "src": "daily",
+                })
         connection.commit()
     finally:
         connection.close()
@@ -151,23 +214,45 @@ def test_import_upserts_annual_statements_into_financial_statements(
     assert result.statements_saved == 2
 
 
-def test_import_excludes_non_annual_report_types(
+def test_import_uses_only_fiscal_year_end_quarter_as_annual_statement(
     connection: sqlite3.Connection, repository: FinancialRepository, tmp_path: Path
 ) -> None:
     quant_db = _make_quant_db(
         tmp_path / "quant.db",
         [
-            _statement("005930", 2025, "11011"),
-            _statement("005930", 2025, "11012"),
-            _statement("005930", 2025, "11013"),
-            _statement("005930", 2025, "11014"),
+            _statement("005930", 2025, 3, sales=200.0),
+            _statement("005930", 2025, 6, sales=400.0),
+            _statement("005930", 2025, 9, sales=600.0),
+            _statement("005930", 2025, 12, sales=800.0),
+            # 3월 결산 종목: 2026년 3월 분기가 연간이다
+            _statement("000660", 2025, 12, sales=750.0),
+            _statement("000660", 2026, 3, sales=1000.0),
         ],
         [],
+        setl_months={"000660": 3},
     )
 
     _import(connection, quant_db)
 
-    assert [s.report_type for s in repository.list_statements("005930")] == ["11011"]
+    december = repository.list_statements("005930")
+    assert [(s.year, s.report_type, s.sales) for s in december] == [(2025, "11011", 800.0)]
+    march = repository.list_statements("000660")
+    assert [(s.year, s.sales) for s in march] == [(2026, 1000.0)]
+
+
+def test_import_treats_missing_fiscal_month_as_december(
+    connection: sqlite3.Connection, repository: FinancialRepository, tmp_path: Path
+) -> None:
+    quant_db = _make_quant_db(
+        tmp_path / "quant.db",
+        [_statement("005930", 2025, 9), _statement("005930", 2025, 12)],
+        [],
+        setl_months={"005930": None},
+    )
+
+    _import(connection, quant_db)
+
+    assert [s.year for s in repository.list_statements("005930")] == [2025]
 
 
 def test_import_stores_net_income_zero_as_null_not_zero(
@@ -250,23 +335,26 @@ def test_import_skips_row_when_all_numeric_values_are_null(
 # ── 밸류에이션 ──────────────────────────────────────────────────────────
 
 
-def test_import_upserts_monthly_valuation_into_financial_metrics(
+def test_import_upserts_latest_valuation_as_month_row_and_keeps_previous_months(
     connection: sqlite3.Connection, repository: FinancialRepository, tmp_path: Path
 ) -> None:
-    quant_db = _make_quant_db(
-        tmp_path / "quant.db",
-        [],
-        [_metric("005930", "2026-06"), _metric("005930", "2026-07", per=0.0, pbr=0.0)],
+    june = _make_quant_db(tmp_path / "june.db", [], [_metric("005930", "2026-06")])
+    july = _make_quant_db(
+        tmp_path / "july.db", [], [_metric("005930", "2026-07", close_price=71000.0)]
     )
 
-    result = _import(connection, quant_db)
+    _import(connection, june)
+    result = _import(connection, july)
 
     saved = repository.list_metrics("005930")
     assert [m.year_month for m in saved] == ["2026-06", "2026-07"]
     assert saved[0].close_price == 70000.0
-    assert saved[0].per == 12.5
     assert saved[0].trade_date == "2026-06-28"
-    assert result.metrics_saved == 2
+    assert saved[1].close_price == 71000.0  # asof_date의 daily_price 종가
+    assert saved[1].shares_out == 6.0e9  # asof_date 이전 가장 최근 share_count
+    assert saved[1].market_cap == 4.2e14
+    assert saved[1].per == 12.5
+    assert result.metrics_saved == 1
 
 
 def test_import_stores_per_and_pbr_zero_as_null_and_keeps_negative_and_other_values(
@@ -276,24 +364,37 @@ def test_import_stores_per_and_pbr_zero_as_null_and_keeps_negative_and_other_val
         tmp_path / "quant.db",
         [],
         [
-            _metric("005930", "2026-06", per=0.0, pbr=0.0, psr=0.0),
-            _metric("005930", "2026-07", per=-3.2, pbr=0.9),
+            _metric("005930", per=0.0, pbr=0.0, psr=0.0),
+            _metric("000660", per=-3.2, pbr=0.9),
         ],
     )
 
     result = _import(connection, quant_db)
 
-    june, july = repository.list_metrics("005930")
-    assert june.per is None and june.pbr is None  # 0.0 -> N/A
-    assert june.psr == 0.0  # per/pbr 외의 열은 원천 그대로
-    assert june.close_price == 70000.0
-    assert july.per == -3.2  # 적자 종목의 음수 PER은 유지
-    assert july.pbr == 0.9
+    zero = repository.list_metrics("005930")[0]
+    negative = repository.list_metrics("000660")[0]
+    assert zero.per is None and zero.pbr is None  # 0.0 -> N/A
+    assert zero.psr == 0.0  # per/pbr 외의 열은 원천 그대로
+    assert zero.close_price == 70000.0
+    assert negative.per == -3.2  # 적자 종목의 음수 PER은 유지
+    assert negative.pbr == 0.9
     stored = connection.execute(
-        "SELECT typeof(per) FROM financial_metrics WHERE year_month = '2026-06'"
+        "SELECT typeof(per) FROM financial_metrics WHERE stock_code = '005930'"
     ).fetchone()[0]
     assert stored == "null"
     assert result.per_pbr_nullified == 1
+
+
+def test_import_keeps_valuation_when_close_price_is_missing(
+    connection: sqlite3.Connection, repository: FinancialRepository, tmp_path: Path
+) -> None:
+    quant_db = _make_quant_db(tmp_path / "quant.db", [], [_metric("005930", close_price=None)])
+
+    _import(connection, quant_db)
+
+    saved = repository.list_metrics("005930")[0]
+    assert saved.close_price is None
+    assert saved.per == 12.5
 
 
 def test_import_accepts_alphanumeric_stock_code_when_registered_in_securities(
@@ -355,11 +456,15 @@ def test_import_skips_unknown_stock_code_and_logs_it(
 
 def test_parse_statement_rows_rejects_year_out_of_range_and_bad_values() -> None:
     def row(**overrides: object) -> tuple:
-        base = _statement("005930", **overrides)
-        keys = ("stock_code", "year", "report_type", "assets", "liabilities", "equity",
-                "current_assets", "current_liab", "sales", "gross_profit",
-                "operating_income", "net_income", "is_consolidated")
-        return tuple(base[k] for k in keys)
+        base = {
+            "stock_code": "005930", "year": 2025, "report_type": "11011",
+            "assets": 1000.0, "liabilities": 400.0, "equity": 600.0,
+            "current_assets": 500.0, "current_liab": 300.0, "sales": 800.0,
+            "gross_profit": 200.0, "operating_income": 100.0, "net_income": 60.0,
+            "is_consolidated": 1,
+        }
+        base.update(overrides)
+        return tuple(base.values())
 
     stats = StatementParseStats()
     parsed = list(
@@ -390,10 +495,13 @@ def test_parse_statement_rows_rejects_year_out_of_range_and_bad_values() -> None
 
 def test_parse_metric_rows_rejects_bad_year_month_date_and_negative_price() -> None:
     def row(**overrides: object) -> tuple:
-        base = _metric("005930", **overrides)
-        keys = ("stock_code", "year_month", "trade_date", "close_price", "market_cap",
-                "shares_out", "per", "pbr", "psr", "pcr")
-        return tuple(base[k] for k in keys)
+        base = {
+            "stock_code": "005930", "year_month": "2026-07", "trade_date": "2026-07-28",
+            "close_price": 70000.0, "market_cap": 4.2e14, "shares_out": 6.0e9,
+            "per": 12.5, "pbr": 1.4, "psr": 1.1, "pcr": 5.0,
+        }
+        base.update(overrides)
+        return tuple(base.values())
 
     stats = MetricParseStats()
     parsed = list(
@@ -460,9 +568,9 @@ def test_import_raises_before_writing_when_source_table_is_missing(
 ) -> None:
     broken = tmp_path / "broken.db"
     raw = sqlite3.connect(broken)
-    raw.executescript(_SOURCE_SCHEMA.split("CREATE TABLE market_data")[0])  # market_data 없음
-    raw.execute("INSERT INTO financial_data (stock_code, year, report_type, assets) "
-                "VALUES ('005930', 2025, '11011', 1.0)")
+    raw.executescript(_SOURCE_SCHEMA.split("CREATE TABLE quant_latest")[0])  # quant_latest 없음
+    raw.execute("INSERT INTO financial_q (code, period, assets, available_date) "
+                "VALUES ('005930', 202512, 1.0, 20260331)")
     raw.commit()
     raw.close()
 
@@ -476,19 +584,10 @@ def test_import_raises_before_writing_when_source_table_is_missing(
 
 
 class _FakeSource:
-    """ExternalDataSource 대역: 가격은 비어 있고 quant.db는 fixture 파일을 복사한다."""
+    """ExternalDataSource 대역: quant.db는 fixture 파일을 복사한다."""
 
     def __init__(self, quant_db: Path) -> None:
         self._quant_db = quant_db
-
-    def list_price_stock_codes(self) -> list[str]:
-        return []
-
-    def export_prices(self, since_by_code: Mapping[str, str | None], dest_dir: Path) -> PriceExport:
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        psv = dest_dir / "prices.psv"
-        psv.write_text("", encoding="utf-8")
-        return PriceExport(psv_path=psv, failures={})
 
     def fetch_quant_db(self, dest_dir: Path) -> Path:
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -497,21 +596,19 @@ class _FakeSource:
         return target
 
 
-def test_collect_market_data_also_imports_financial_data_from_same_snapshot(
+def test_collect_market_data_imports_prices_corp_codes_and_financials_from_one_snapshot(
     connection: sqlite3.Connection, repository: FinancialRepository, tmp_path: Path
 ) -> None:
-    quant_db = _make_quant_db(tmp_path / "quant_src.db", [_statement("005930", 2025)], [_metric("005930")])
-    raw = sqlite3.connect(quant_db)
-    raw.executescript(
-        "CREATE TABLE stock_master (stock_code TEXT PRIMARY KEY, stock_name TEXT, "
-        "corp_code TEXT, market TEXT, updated_at TEXT);"
-        "INSERT INTO stock_master VALUES ('005930','Samsung','00126380','KOSPI','2026-10-01');"
+    quant_db = _make_quant_db(
+        tmp_path / "quant_src.db",
+        [_statement("005930", 2025)],
+        [_metric("005930")],
+        corp_codes={"005930": "00126380"},
     )
-    raw.commit()
-    raw.close()
 
     result = collect_market_data(connection, _FakeSource(quant_db), tmp_path / "staging")
 
+    assert result.prices.rows_saved == 1  # _metric이 넣은 asof_date 종가 1행
     assert result.financial is not None
     assert result.financial.statements_saved == 1
     assert result.financial.metrics_saved == 1

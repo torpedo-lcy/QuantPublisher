@@ -1,31 +1,43 @@
-"""quant.db의 연간 재무제표/월별 밸류에이션을 가져와 저장한다 (Task 014).
+"""quant.db의 연간 재무제표/최신 밸류에이션을 가져와 저장한다 (Task 014).
 
 외부 Mac에서 ``.backup``으로 만든 quant.db 스냅샷(Task 013의 복사 경로)을 로컬에서
-읽기 전용으로 열어 두 테이블을 가져온다.
+읽기 전용으로 열어 가져온다.
 
-    financial_data (report_type='11011'만) -> 파싱/검증 -> financial_statements upsert
-    market_data                           -> 파싱/검증 -> financial_metrics upsert
+    financial_q (결산월 분기만) -> 파싱/검증 -> financial_statements upsert
+    quant_latest (+ daily_price 종가, share_count 주식수) -> 파싱/검증 -> financial_metrics upsert
 
 단계 분리 (price_import.py와 같은 방식):
     parse_statement_rows / parse_metric_rows : 행 검증/변환 (순수 함수)
     save_statements / save_metrics           : Repository를 통한 배치 upsert
     import_financial_data                    : 위 단계를 잇는 진입점
 
+원천 변환 규칙:
+    * financial_q는 분기(period=YYYYMM) 누적(YTD) 값이다. period의 월이 그 종목의
+      결산월(stock.setl_month, 없으면 12)인 행만 연간 재무제표로 보고, year는 period의
+      연도, report_type은 '11011'(연간)로 저장한다. *_ytd 열이 연간 값이 된다.
+    * financial_q에는 연결/별도 구분이 없다. 모두 연결(is_consolidated=1)로 저장한다.
+      사용자 결정 (2026-10-26). 매출성장률이 연결/별도 비교로 N/A가 되지 않게 하려는 것이다.
+    * quant_latest는 종목별 최신 1행이다. asof_date의 월을 year_month로 해서
+      financial_metrics에 upsert한다 (실행할 때마다 그 달의 행이 갱신되고, 지난 달 행은
+      그대로 남는다). 사용자 결정 (2026-10-26). close_price는 asof_date의 daily_price
+      종가, shares_out은 asof_date 이전 가장 최근 share_count 값이다.
+    * quant_latest의 per/psr/pcr은 최근 4분기(TTM) 기준이다. 이전 원천(market_data)은
+      직전 연간 기준이어서 같은 종목이라도 값이 다를 수 있다.
+
 데이터 처리 규칙:
-    * financial_data.eps는 가져오지 않는다 (원천에서 상시 0이라 신뢰할 수 없다).
-    * 현금흐름 3종과 YoY 3종도 가져오지 않는다 (비어 있는 경우가 많다).
+    * financial_q의 eps/bps/cfo_ytd는 가져오지 않는다 (EPS/BPS는 Task 015에서 종가와
+      PER/PBR로 역산한다).
     * net_income == 0.0은 "미공시"로 간주해 NULL로 저장한다. DART 잠정실적 공시가
       순이익 없이 먼저 올라오는 경우가 많아, 0을 그대로 저장하면 ROE 등이 0%로
       잘못 계산되기 때문이다.
     * sales == 0.0도 같은 이유로 NULL로 저장한다 (영업이익률/순이익률/매출성장률이
       0 나눗셈이나 잘못된 값이 되는 것을 막는다). 사용자 결정 (2026-10-09).
-    * market_data의 per == 0.0, pbr == 0.0은 "계산 불가"로 보고 NULL(=N/A)로 저장한다.
+    * per == 0.0, pbr == 0.0은 "계산 불가"로 보고 NULL(=N/A)로 저장한다.
       PER/PBR 0은 실제 값일 수 없다. 사용자 결정 (2026-10-09).
       psr/pcr 등 다른 열은 원천 값 그대로 저장한다.
     * 종목코드는 숫자 또는 영문 대문자 6자리를 허용한다 (ETF/ETN 등 신규 코드).
       단, securities에 등록된 종목만 저장한다.
     * 위 외의 0.0(gross_profit, operating_income 등)은 그대로 저장한다.
-    * 연간(11011) 외 report_type은 저장하지 않는다.
 """
 
 from __future__ import annotations
@@ -56,7 +68,7 @@ _BATCH_SIZE = 50_000
 _FETCH_SIZE = 10_000
 _LOG_SAMPLE_SIZE = 10
 
-# 가져올 열 (순서가 곧 파서가 받는 행의 순서다). eps, cf_*, *_yoy는 의도적으로 제외.
+# 파서가 받는 행의 열 순서 (원천 쿼리가 이 순서로 열을 만든다).
 _STATEMENT_COLUMNS = (
     "stock_code",
     "year",
@@ -89,6 +101,46 @@ _METRIC_COLUMNS = (
     "psr",
     "pcr",
 )
+# financial_q에서 결산월 분기를 연간 재무제표 행(_STATEMENT_COLUMNS 순서)으로 읽는다.
+# 결산월이 없는 종목은 12월로 본다. 연결/별도 구분이 없어 모두 연결(1)로 둔다.
+_STATEMENT_QUERY = f"""
+SELECT f.code, f.period / 100, '{ANNUAL_REPORT_TYPE}',
+       f.assets, f.liabilities, f.equity, f.current_assets, f.current_liab,
+       f.revenue_ytd, f.gross_profit_ytd, f.op_income_ytd, f.net_income_ytd,
+       1
+FROM financial_q AS f
+LEFT JOIN stock AS s ON s.code = f.code
+WHERE f.period % 100 = COALESCE(s.setl_month, 12)
+"""
+
+# quant_latest를 최신 월 밸류에이션 행(_METRIC_COLUMNS 순서)으로 읽는다.
+_METRIC_QUERY = """
+SELECT q.code,
+       substr(q.asof_date, 1, 4) || '-' || substr(q.asof_date, 5, 2),
+       substr(q.asof_date, 1, 4) || '-' || substr(q.asof_date, 5, 2) || '-'
+           || substr(q.asof_date, 7, 2),
+       d.close,
+       q.market_cap,
+       (SELECT sc.shares FROM share_count AS sc
+         WHERE sc.code = q.code AND sc.asof_date <= q.asof_date
+         ORDER BY sc.asof_date DESC LIMIT 1),
+       q.per, q.pbr, q.psr, q.pcr
+FROM quant_latest AS q
+LEFT JOIN daily_price AS d ON d.code = q.code AND d.date = q.asof_date
+"""
+
+# 원천 쿼리가 읽는 테이블과 열 (DB 쓰기 전에 존재를 확인한다).
+_SOURCE_COLUMNS = {
+    "financial_q": (
+        "code", "period", "assets", "liabilities", "equity", "current_assets",
+        "current_liab", "revenue_ytd", "gross_profit_ytd", "op_income_ytd", "net_income_ytd",
+    ),
+    "stock": ("code", "setl_month"),
+    "quant_latest": ("code", "asof_date", "market_cap", "per", "pbr", "psr", "pcr"),
+    "daily_price": ("code", "date", "close"),
+    "share_count": ("code", "asof_date", "shares"),
+}
+
 _METRIC_NON_NEGATIVE_COUNT = 3  # close_price, market_cap, shares_out
 # 숫자 열(row[3:10]) 안에서 0.0을 NULL(N/A)로 바꾸는 열: per, pbr
 _METRIC_ZERO_AS_NULL_INDEXES = (
@@ -98,7 +150,7 @@ _METRIC_ZERO_AS_NULL_INDEXES = (
 
 
 class FinancialDataReadError(Exception):
-    """quant.db의 financial_data/market_data를 읽을 수 없을 때의 오류."""
+    """quant.db의 financial_q/quant_latest 등을 읽을 수 없을 때의 오류."""
 
 
 @dataclass(slots=True)
@@ -172,7 +224,7 @@ def parse_statement_rows(
     stats: StatementParseStats,
     current_year: int,
 ) -> Iterator[FinancialStatement]:
-    """financial_data 행(_STATEMENT_COLUMNS 순서)을 검증해 FinancialStatement로 변환한다.
+    """연간 재무제표 행(_STATEMENT_COLUMNS 순서)을 검증해 FinancialStatement로 변환한다.
 
     다음 행은 건너뛰고 stats에 센다 (조용히 버리지 않는다):
         - 종목코드가 숫자/영문 대문자 6자리가 아님 / year가 정수가 아니거나 [MIN_YEAR, current_year]
@@ -262,7 +314,7 @@ def parse_metric_rows(
     stats: MetricParseStats,
     current_year: int,
 ) -> Iterator[FinancialMetric]:
-    """market_data 행(_METRIC_COLUMNS 순서)을 검증해 FinancialMetric으로 변환한다.
+    """밸류에이션 행(_METRIC_COLUMNS 순서)을 검증해 FinancialMetric으로 변환한다.
 
     다음 행은 건너뛰고 stats에 센다 (조용히 버리지 않는다):
         - 종목코드가 숫자/영문 대문자 6자리가 아님 / year_month가 실제 YYYY-MM이 아니거나 연도가
@@ -345,7 +397,7 @@ def save_statements(
 
 
 def save_metrics(connection: sqlite3.Connection, metrics: Iterable[FinancialMetric]) -> int:
-    """월별 밸류에이션을 배치 단위로 upsert한다. 배치마다 하나의 트랜잭션이다."""
+    """밸류에이션을 배치 단위로 upsert한다. 배치마다 하나의 트랜잭션이다."""
     repository = FinancialRepository(connection)
     iterator = iter(metrics)
     total = 0
@@ -363,7 +415,7 @@ def import_financial_data(
     quant_db_path: Path,
     current_year: int | None = None,
 ) -> FinancialImportResult:
-    """quant.db 스냅샷에서 연간 재무제표와 월별 밸류에이션을 가져온다 (idempotent).
+    """quant.db 스냅샷에서 연간 재무제표와 최신 밸류에이션을 가져온다 (idempotent).
 
     quant.db는 읽기 전용으로만 연다. 원천 테이블/열 확인은 DB 쓰기보다 먼저 끝나므로,
     읽을 수 없으면 financial_* 테이블은 바뀌지 않는다.
@@ -382,11 +434,7 @@ def import_financial_data(
 
     statement_stats = StatementParseStats()
     statements = parse_statement_rows(
-        _read_rows(
-            quant_db_path,
-            f"SELECT {', '.join(_STATEMENT_COLUMNS)} FROM financial_data "
-            f"WHERE report_type = '{ANNUAL_REPORT_TYPE}'",
-        ),
+        _read_rows(quant_db_path, _STATEMENT_QUERY),
         known_codes,
         statement_stats,
         upper_year,
@@ -396,7 +444,7 @@ def import_financial_data(
 
     metric_stats = MetricParseStats()
     metrics = parse_metric_rows(
-        _read_rows(quant_db_path, f"SELECT {', '.join(_METRIC_COLUMNS)} FROM market_data"),
+        _read_rows(quant_db_path, _METRIC_QUERY),
         known_codes,
         metric_stats,
         upper_year,
@@ -534,16 +582,12 @@ def _to_optional_date(value: Any) -> str | None | _Invalid:
 
 def _check_source_schema(quant_db_path: Path) -> None:
     """원천 테이블과 필요한 열이 있는지 DB 쓰기 전에 확인한다."""
-    needed = {
-        "financial_data": _STATEMENT_COLUMNS,
-        "market_data": _METRIC_COLUMNS,
-    }
     if not quant_db_path.exists():
         raise FinancialDataReadError(f"quant.db 파일이 없습니다: {quant_db_path}")
     try:
         connection = sqlite3.connect(f"file:{quant_db_path}?mode=ro", uri=True)
         try:
-            for table, columns in needed.items():
+            for table, columns in _SOURCE_COLUMNS.items():
                 existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
                 if not existing:
                     raise FinancialDataReadError(f"quant.db에 {table} 테이블이 없습니다.")

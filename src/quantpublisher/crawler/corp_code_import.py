@@ -1,4 +1,4 @@
-"""quant.db의 stock_master에서 DART 고유번호(corp_code)를 읽어 securities에 채운다.
+"""quant.db의 stock 테이블에서 DART 고유번호(corp_code)를 읽어 securities에 채운다.
 
 quant.db는 항상 읽기 전용으로 연다. 이 모듈이 받는 quant.db는 외부 Mac에서
 ``.backup``으로 만든 스냅샷을 로컬로 복사한 파일이다.
@@ -22,8 +22,8 @@ _CORP_CODE_DIGITS = re.compile(r"^\d{1,8}$")
 _CORP_CODE_LENGTH = 8
 
 
-class StockMasterReadError(Exception):
-    """quant.db의 stock_master를 읽을 수 없을 때의 오류."""
+class StockTableReadError(Exception):
+    """quant.db의 stock 테이블을 읽을 수 없을 때의 오류."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +31,7 @@ class CorpCodeImportResult:
     """corp_code 가져오기 결과.
 
     Attributes:
-        master_rows: stock_master에서 읽은 행 수.
+        master_rows: stock 테이블에서 읽은 행 수.
         updated: 값이 실제로 바뀐 securities 행 수.
         skipped_unknown_code: securities에 없는 종목코드라 건너뛴 행 수.
         skipped_invalid: 종목코드/corp_code가 비었거나 형식이 틀려 건너뛴 행 수.
@@ -43,23 +43,23 @@ class CorpCodeImportResult:
     skipped_invalid: int
 
 
-def read_stock_master(quant_db_path: Path) -> list[tuple[Any, Any]]:
-    """stock_master의 (stock_code, corp_code) 원시 값을 읽는다 (읽기 전용).
+def read_stock_corp_codes(quant_db_path: Path) -> list[tuple[Any, Any]]:
+    """stock 테이블의 (code, corp_code) 원시 값을 읽는다 (읽기 전용).
 
     Raises:
-        StockMasterReadError: 파일이 없거나 테이블/열을 읽을 수 없는 경우.
+        StockTableReadError: 파일이 없거나 테이블/열을 읽을 수 없는 경우.
     """
     if not quant_db_path.exists():
-        raise StockMasterReadError(f"quant.db 파일이 없습니다: {quant_db_path}")
+        raise StockTableReadError(f"quant.db 파일이 없습니다: {quant_db_path}")
     uri = f"file:{quant_db_path}?mode=ro"
     try:
         connection = sqlite3.connect(uri, uri=True)
         try:
-            return connection.execute("SELECT stock_code, corp_code FROM stock_master").fetchall()
+            return connection.execute("SELECT code, corp_code FROM stock").fetchall()
         finally:
             connection.close()
     except sqlite3.Error as exc:
-        raise StockMasterReadError(f"stock_master 읽기 실패: {exc}") from exc
+        raise StockTableReadError(f"stock 테이블 읽기 실패: {exc}") from exc
 
 
 def normalize_corp_code(value: Any) -> str | None:
@@ -79,12 +79,12 @@ def normalize_corp_code(value: Any) -> str | None:
 def import_corp_codes(
     connection: sqlite3.Connection, quant_db_path: Path
 ) -> CorpCodeImportResult:
-    """stock_master의 corp_code를 securities에 반영한다 (idempotent).
+    """stock 테이블의 corp_code를 securities에 반영한다 (idempotent).
 
     securities에 없는 종목은 건너뛰고(새로 만들지 않는다), corp_code가 비어 있는
     행은 기존 값을 지우지 않도록 건너뛴다. 건너뛴 건수는 결과와 로그에 남는다.
     """
-    master_rows = read_stock_master(quant_db_path)
+    master_rows = read_stock_corp_codes(quant_db_path)
     known_codes = {s.stock_code for s in SecurityRepository(connection).list_all()}
 
     corp_codes: dict[str, str] = {}

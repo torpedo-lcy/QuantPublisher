@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from quantpublisher.database.models import PriceDaily
 
@@ -72,6 +72,18 @@ class PriceRepository:
             "SELECT stock_code, MAX(trade_date) AS latest FROM prices_daily GROUP BY stock_code"
         ).fetchall()
         return {row["stock_code"]: row["latest"] for row in rows}
+
+    def get_closes_on(self, dates: Mapping[str, str]) -> dict[str, tuple[str, float]]:
+        """종목코드 -> 지정한 trade_date의 (trade_date, close). 그날 행이 없는 종목은 빠진다."""
+        closes: dict[str, tuple[str, float]] = {}
+        for stock_code, trade_date in dates.items():
+            row = self._connection.execute(
+                "SELECT close FROM prices_daily WHERE stock_code = ? AND trade_date = ?",
+                (stock_code, trade_date),
+            ).fetchone()
+            if row is not None and row["close"] is not None:
+                closes[stock_code] = (trade_date, row["close"])
+        return closes
 
     def list_recent_by_code(self, stock_code: str, limit: int) -> list[PriceDaily]:
         """한 종목의 최근 limit개 일봉을 거래일 오름차순으로 반환한다."""

@@ -1,12 +1,16 @@
 """외부 Mac mini 접속 계층 (SSH + rsync).
 
-외부 Mac에는 아무것도 설치하지 않는다. 원본 DB는 항상 읽기 전용으로 연다
-(`sqlite3 -readonly`). 원격에 쓰는 것은 이번 실행 전용 임시 디렉터리
-(`mktemp -d`) 안의 중간 파일뿐이며, 가져온 뒤 `cleanup()`으로 지운다.
+외부 Mac에는 아무것도 설치하지 않는다. 원본 DB는 항상 읽기 전용으로 연다.
+원격에 쓰는 것은 이번 실행 전용 임시 디렉터리(`mktemp -d`) 안의 스냅샷뿐이며,
+가져온 뒤 `cleanup()`으로 지운다.
 
 흐름:
-    export_prices : 원격에서 종목별 daily 테이블을 PSV로 추출 -> rsync로 가져옴
-    fetch_quant_db: 원격에서 quant.db를 .backup 스냅샷으로 복사 -> rsync로 가져옴
+    fetch_quant_db: 원격 quant.db(가격/종목/재무 통합 DB)를 .backup 스냅샷으로 복사
+                    -> 스냅샷을 rollback journal 모드로 바꿈 -> rsync로 가져옴
+
+원본 quant.db는 WAL 모드다. 쓰는 프로세스가 없어 -wal/-shm 파일이 없으면
+`mode=ro`로는 열리지 않으므로(SQLITE_CANTOPEN), 그때는 `immutable=1`로 연다.
+-wal 파일이 있으면(쓰는 프로세스가 있음) `mode=ro`로 열어 일관된 스냅샷을 만든다.
 
 오류는 세 종류로 구분해서 상위로 전달한다 (조용히 넘기지 않는다).
     ExternalConnectionError: SSH 접속 실패 (꺼져 있음, 인증 실패, 타임아웃 등)
@@ -20,64 +24,40 @@ import logging
 import re
 import shlex
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Protocol
+from typing import Callable, Protocol
 
 from config.settings import ExternalMacSettings
-from quantpublisher.database.stock_code import STOCK_CODE_PATTERN
 
 logger = logging.getLogger(__name__)
 
-PRICES_FILE_NAME = "prices.psv"
-FAILURES_FILE_NAME = "failures.psv"
 QUANT_DB_FILE_NAME = "quant.db"
 
 _SSH_CONNECT_FAILURE_EXIT_CODE = 255
 _DEFAULT_TIMEOUT_SECONDS = 900
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_REMOTE_TMP_DIR_RE = re.compile(r"^/[A-Za-z0-9_./-]*qp_(?:export|quant)\.[A-Za-z0-9]+$")
+_REMOTE_TMP_DIR_RE = re.compile(r"^/[A-Za-z0-9_./-]*qp_quant\.[A-Za-z0-9]+$")
 
 _SSH_OPTIONS = ("-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
 
-# 원격에서 sh로 실행되는 가격 추출 스크립트 템플릿.
-# 종목코드와 날짜는 Python에서 형식을 검증한 값만 heredoc으로 넣는다.
-_EXPORT_SCRIPT = """\
-set -u
-STOCK_PRICE_DIR={stock_price_dir}
-TMP=$(mktemp -d "${{TMPDIR:-/tmp}}/qp_export.XXXXXX") || exit 1
-: > "$TMP/{prices_file}"
-: > "$TMP/{failures_file}"
-while IFS='|' read -r code since; do
-  [ -n "$code" ] || continue
-  db="$STOCK_PRICE_DIR/$code.db"
-  if [ ! -f "$db" ]; then
-    echo "$code|file not found" >> "$TMP/{failures_file}"
-    continue
-  fi
-  if [ -n "$since" ]; then
-    where="WHERE Time > '$since'"
-  else
-    where=""
-  fi
-  if sqlite3 -readonly -separator '|' "$db" \\
-      "SELECT '$code', Time, open, high, low, close, volume FROM daily $where ORDER BY Time" \\
-      > "$TMP/one.psv" 2> "$TMP/one.err" < /dev/null; then
-    cat "$TMP/one.psv" >> "$TMP/{prices_file}"
-  else
-    echo "$code|$(tr '\\n' ' ' < "$TMP/one.err")" >> "$TMP/{failures_file}"
-  fi
-done <<'QP_SINCE_EOF'
-{since_lines}
-QP_SINCE_EOF
-rm -f "$TMP/one.psv" "$TMP/one.err"
-echo "$TMP"
-"""
-
+# 원격에서 sh로 실행되는 스냅샷 스크립트 템플릿. 경로는 shlex.quote한 값만 넣는다.
 _QUANT_SCRIPT = """\
 set -u
+DB={quant_db_path}
+if [ ! -f "$DB" ]; then
+  echo "quant.db not found: $DB" >&2
+  exit 1
+fi
+if [ -e "$DB-wal" ]; then
+  URI="file:$DB?mode=ro"
+else
+  URI="file:$DB?immutable=1"
+fi
 TMP=$(mktemp -d "${{TMPDIR:-/tmp}}/qp_quant.XXXXXX") || exit 1
-if ! sqlite3 -readonly {quant_db_path} ".backup '$TMP/{quant_file}'"; then
+if ! sqlite3 "$URI" ".backup '$TMP/{quant_file}'" < /dev/null; then
+  rm -rf "$TMP"
+  exit 1
+fi
+if ! sqlite3 "$TMP/{quant_file}" "PRAGMA journal_mode=DELETE" > /dev/null < /dev/null; then
   rm -rf "$TMP"
   exit 1
 fi
@@ -101,25 +81,8 @@ class ExternalTransferError(ExternalSourceError):
     """rsync 파일 전송 실패."""
 
 
-@dataclass(frozen=True, slots=True)
-class PriceExport:
-    """가격 추출 결과 파일.
-
-    Attributes:
-        psv_path: `종목코드|Time|open|high|low|close|volume` 행이 담긴 파일.
-        failures: 추출에 실패한 종목코드 -> 원인 메시지.
-    """
-
-    psv_path: Path
-    failures: dict[str, str]
-
-
 class ExternalDataSource(Protocol):
     """수집기가 의존하는 외부 데이터 소스 인터페이스 (테스트에서 대체 가능)."""
-
-    def list_price_stock_codes(self) -> list[str]: ...
-
-    def export_prices(self, since_by_code: Mapping[str, str | None], dest_dir: Path) -> PriceExport: ...
 
     def fetch_quant_db(self, dest_dir: Path) -> Path: ...
 
@@ -154,43 +117,11 @@ class ExternalMacClient:
 
     # ── 공개 API ────────────────────────────────────────────────────────
 
-    def list_price_stock_codes(self) -> list[str]:
-        """원격 stock-price 디렉터리에 있는 <종목코드>.db의 종목코드 목록."""
-        command = f"ls -1 {shlex.quote(self._config.stock_price_dir)}"
-        output = self._ssh(command)
-        codes = []
-        for line in output.splitlines():
-            name = line.strip()
-            if name.endswith(".db") and STOCK_CODE_PATTERN.match(name[:-3]):
-                codes.append(name[:-3])
-        return sorted(codes)
-
-    def export_prices(
-        self, since_by_code: Mapping[str, str | None], dest_dir: Path
-    ) -> PriceExport:
-        """종목별 daily 테이블을 원격에서 추출해 dest_dir로 가져온다.
-
-        Args:
-            since_by_code: 종목코드 -> 이 날짜 '이후'만 가져올 기준일.
-                None이면 해당 종목은 전체를 가져온다 (최초 백필).
-            dest_dir: 로컬 저장 디렉터리 (없으면 만든다).
-        """
-        script = _EXPORT_SCRIPT.format(
-            stock_price_dir=shlex.quote(self._config.stock_price_dir),
-            prices_file=PRICES_FILE_NAME,
-            failures_file=FAILURES_FILE_NAME,
-            since_lines=_render_since_lines(since_by_code),
-        )
-        remote_tmp = self._run_script(script)
-        try:
-            self._rsync_pull(remote_tmp, dest_dir)
-        finally:
-            self.cleanup(remote_tmp)
-        failures = _read_failures(dest_dir / FAILURES_FILE_NAME)
-        return PriceExport(psv_path=dest_dir / PRICES_FILE_NAME, failures=failures)
-
     def fetch_quant_db(self, dest_dir: Path) -> Path:
-        """원격 quant.db를 .backup 스냅샷으로 만들어 dest_dir로 가져온다."""
+        """원격 quant.db를 .backup 스냅샷으로 만들어 dest_dir로 가져온다.
+
+        스냅샷은 rollback journal 모드라 로컬에서 `mode=ro`로 바로 열 수 있다.
+        """
         script = _QUANT_SCRIPT.format(
             quant_db_path=shlex.quote(self._config.quant_db_path),
             quant_file=QUANT_DB_FILE_NAME,
@@ -205,7 +136,7 @@ class ExternalMacClient:
     def cleanup(self, remote_tmp: str) -> None:
         """이번 실행이 만든 원격 임시 디렉터리를 지운다.
 
-        경로 형식이 우리가 만든 것(qp_export.* / qp_quant.*)이 아니면 지우지 않는다.
+        경로 형식이 우리가 만든 것(qp_quant.*)이 아니면 지우지 않는다.
         정리 실패는 이미 가져온 데이터를 무효로 만들지 않으므로 경고만 남긴다.
         """
         if not _REMOTE_TMP_DIR_RE.match(remote_tmp):
@@ -271,28 +202,3 @@ class ExternalMacClient:
             raise ExternalTransferError(
                 f"rsync 실패 (exit={result.returncode}): {result.stderr.strip()}"
             )
-
-
-def _render_since_lines(since_by_code: Mapping[str, str | None]) -> str:
-    """heredoc에 넣을 `종목코드|기준일` 줄을 만든다. 형식이 틀린 값은 거부한다."""
-    lines = []
-    for code in sorted(since_by_code):
-        since = since_by_code[code]
-        if not STOCK_CODE_PATTERN.match(code):
-            raise ValueError(f"잘못된 종목코드: {code!r}")
-        if since is not None and not _DATE_RE.match(since):
-            raise ValueError(f"잘못된 기준일 형식 (YYYY-MM-DD 필요): {code} {since!r}")
-        lines.append(f"{code}|{since or ''}")
-    return "\n".join(lines)
-
-
-def _read_failures(path: Path) -> dict[str, str]:
-    """failures.psv(`종목코드|메시지`)를 읽는다. 파일이 없으면 빈 dict."""
-    if not path.exists():
-        return {}
-    failures: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        code, _, message = line.partition("|")
-        if code.strip():
-            failures[code.strip()] = message.strip()
-    return failures

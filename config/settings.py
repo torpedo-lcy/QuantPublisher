@@ -23,13 +23,11 @@ class ExternalMacSettings:
     Attributes:
         host: SSH 호스트. ~/.ssh/config의 별칭도 가능하다.
         user: SSH 사용자. None이면 ssh 설정/현재 사용자를 따른다.
-        stock_price_dir: 종목별 가격 DB(<종목코드>.db)가 있는 원격 디렉터리.
-        quant_db_path: 원격 quant.db 경로.
+        quant_db_path: 원격 quant.db 경로 (가격/종목/재무가 모두 이 DB 하나에 있다).
     """
 
     host: str
     user: str | None
-    stock_price_dir: str
     quant_db_path: str
 
 
@@ -59,31 +57,17 @@ class Settings:
 def _load_external_mac() -> ExternalMacSettings | None:
     """QP_EXTERNAL_* 환경 변수로부터 외부 Mac 설정을 만든다.
 
-    QP_EXTERNAL_HOST가 없으면 None. 호스트는 있는데 경로가 빠져 있으면
+    QP_EXTERNAL_HOST가 없으면 None. 호스트는 있는데 quant.db 경로가 빠져 있으면
     조용히 넘어가지 않고 ValueError를 발생시킨다.
     """
     host = os.environ.get("QP_EXTERNAL_HOST", "").strip()
     if not host:
         return None
-    stock_price_dir = os.environ.get("QP_EXTERNAL_STOCK_PRICE_DIR", "").strip()
     quant_db_path = os.environ.get("QP_EXTERNAL_QUANT_DB_PATH", "").strip()
-    missing = [
-        name
-        for name, value in (
-            ("QP_EXTERNAL_STOCK_PRICE_DIR", stock_price_dir),
-            ("QP_EXTERNAL_QUANT_DB_PATH", quant_db_path),
-        )
-        if not value
-    ]
-    if missing:
-        raise ValueError(f"QP_EXTERNAL_HOST가 설정되었지만 {', '.join(missing)}가 없습니다.")
+    if not quant_db_path:
+        raise ValueError("QP_EXTERNAL_HOST가 설정되었지만 QP_EXTERNAL_QUANT_DB_PATH가 없습니다.")
     user = os.environ.get("QP_EXTERNAL_USER", "").strip() or None
-    return ExternalMacSettings(
-        host=host,
-        user=user,
-        stock_price_dir=stock_price_dir,
-        quant_db_path=quant_db_path,
-    )
+    return ExternalMacSettings(host=host, user=user, quant_db_path=quant_db_path)
 
 
 def _load_dotenv(path: Path) -> None:
